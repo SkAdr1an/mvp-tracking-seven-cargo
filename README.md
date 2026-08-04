@@ -180,6 +180,21 @@ original é aberto somente para leitura durante a cópia.
 
 ## Execução
 
+### Localização complementar do motorista
+
+O GPS do celular permanece desativado por padrão. Para preparar o banco, execute
+`python scripts/migrate_driver_mobile_location.py data/operations.db`. A reversão
+de homologação é `python scripts/migrate_driver_mobile_location.py data/operations.db --reverse`.
+
+Quando `DRIVER_MOBILE_LOCATION_ENABLED=true`, o portal solicita consentimento
+somente depois que o motorista toca em **Compartilhar**. As posições são salvas
+em `operational_positions` com fonte `LINK_MOTORISTA`; precisão e vínculo do link
+ficam na tabela auxiliar. O Trafegus continua principal e o GPS do celular não
+altera estados operacionais. A página precisa permanecer aberta, e Android/iPhone
+podem suspender o GPS com tela bloqueada ou navegador minimizado.
+
+No ambiente entregue, a flag continua `false`; nenhuma ativação geral foi feita.
+
 ### Forma recomendada no Windows
 
 Use o gerenciador na raiz do projeto. No primeiro uso ele prepara as

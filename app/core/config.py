@@ -36,6 +36,12 @@ class Settings(BaseSettings):
     public_trip_contact_name: str = "Central Seven Cargo"
     public_trip_contact_phone: str = ""
     public_trip_instructions: str = ""
+    driver_mobile_location_enabled: bool = False
+    driver_mobile_location_min_interval_seconds: int = 15
+    driver_mobile_location_max_per_minute: int = 6
+    driver_mobile_location_max_accuracy_m: float = 1000
+    driver_mobile_location_stale_minutes: int = 10
+    driver_mobile_location_divergence_km: float = 5
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     operations_database_path: Path = DEFAULT_OPERATIONS_DATABASE
     fleet_collector_enabled: bool = True

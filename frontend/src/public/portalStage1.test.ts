@@ -4,6 +4,7 @@ import test from 'node:test'
 import { buildCentralWhatsAppUrl, locationAgeLabel } from './portalUtils.ts'
 
 const app = readFileSync(new URL('./PublicTripApp.tsx', import.meta.url), 'utf8')
+const sharing = readFileSync(new URL('./MobileLocationSharing.tsx', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('./public-trip.css', import.meta.url), 'utf8')
 
 test('WhatsApp Central uses the approved number and a generic safe message', () => {
@@ -20,11 +21,10 @@ test('location age never presents missing or old information as current', () => 
   assert.equal(locationAgeLabel('2026-08-04T13:00:00Z', now), 'Atualizada há 2 horas')
 })
 
-test('portal exposes the required operational areas without starting geolocation', () => {
+test('portal preserves the operational areas introduced in stage 1', () => {
   assert.match(app, /Próximos alertas/)
-  assert.match(app, /Compartilhamento pelo celular/)
+  assert.match(sharing, /Compartilhamento pelo celular/)
   assert.match(app, /WhatsApp Central/)
-  assert.match(app, /A página deverá permanecer aberta/)
-  assert.doesNotMatch(app, /watchPosition|getCurrentPosition/)
+  assert.match(sharing, /A página deverá permanecer aberta/)
   assert.match(styles, /@media\(max-width:600px\)/)
 })

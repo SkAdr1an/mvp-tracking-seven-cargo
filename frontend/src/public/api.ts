@@ -26,3 +26,23 @@ export async function fetchPublicTrip(token: string, signal?: AbortSignal): Prom
   }
   return response.json() as Promise<PublicTrip>
 }
+
+export async function sendMobilePosition(token: string, position: GeolocationPosition): Promise<void> {
+  const response = await fetch(`${API_URL}/api/public/trips/${encodeURIComponent(token)}/positions`, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      latitude: position.coords.latitude,
+      longitude: position.coords.longitude,
+      accuracy_m: position.coords.accuracy,
+      recorded_at: new Date(position.timestamp).toISOString(),
+    }),
+    cache: 'no-store',
+    credentials: 'omit',
+    referrerPolicy: 'no-referrer',
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { detail?: string } | null
+    throw new Error(payload?.detail || 'Não foi possível enviar a localização.')
+  }
+}

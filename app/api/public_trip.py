@@ -10,12 +10,14 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.security import require_internal_api_key
 from app.schemas.public_trip import (
+    MobilePositionAccepted,
+    MobilePositionRequest,
     PublicLinkCreateRequest,
     PublicLinkCreatedResponse,
     PublicLinkStatusResponse,
     PublicTripResponse,
 )
-from app.services.public_trip import PublicTripService, PublicTripUnavailable
+from app.services.public_trip import MobileLocationRejected, PublicTripService, PublicTripUnavailable
 from app.services.trip_operations import trip_operations_service
 
 
@@ -27,6 +29,17 @@ PUBLIC_TRIP_BUILD = "public-trip-cd-layout-20260731.2"
 
 def get_public_trip_service() -> PublicTripService:
     return public_trip_service
+
+
+def _redact_public_token(request: Request) -> None:
+    request.scope["path"] = "/api/public/trips/[REDACTED]"
+    request.scope["raw_path"] = b"/api/public/trips/[REDACTED]"
+
+
+def _valid_public_token(token: str) -> bool:
+    return 43 <= len(token) <= 128 and all(
+        character.isalnum() or character in "-_" for character in token
+    )
 
 
 @router.post(
@@ -104,10 +117,9 @@ async def get_public_trip(
 ) -> PublicTripResponse | JSONResponse:
     # Starlette has already routed the request. Redacting the scope here prevents
     # Uvicorn's access logger from persisting the bearer token in the URL.
-    request.scope["path"] = "/api/public/trips/[REDACTED]"
-    request.scope["raw_path"] = b"/api/public/trips/[REDACTED]"
+    _redact_public_token(request)
     response.headers["X-Seven-Public-Trip-Build"] = PUBLIC_TRIP_BUILD
-    if len(token) < 43 or len(token) > 128 or not all(character.isalnum() or character in "-_" for character in token):
+    if not _valid_public_token(token):
         return _public_error("invalid_token")
     try:
         payload, link_id = service.resolve(token)
@@ -127,6 +139,39 @@ async def get_public_trip(
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
     return payload
+
+
+@router.post("/public/trips/{token}/positions", response_model=MobilePositionAccepted, status_code=202)
+async def submit_mobile_position(
+    token: str,
+    payload: MobilePositionRequest,
+    request: Request,
+    service: PublicTripService = Depends(get_public_trip_service),
+) -> MobilePositionAccepted | JSONResponse:
+    _redact_public_token(request)
+    if not _valid_public_token(token):
+        return _public_error("invalid_token")
+    try:
+        return MobilePositionAccepted.model_validate(service.accept_mobile_position(token, payload))
+    except PublicTripUnavailable as exc:
+        return _public_error(exc.reason)
+    except MobileLocationRejected as exc:
+        statuses = {
+            "feature_disabled": (404, "Compartilhamento de localização indisponível."),
+            "feature_unavailable": (503, "Compartilhamento temporariamente indisponível."),
+            "accuracy_too_low": (422, "A precisão informada é insuficiente."),
+            "invalid_client_time": (422, "Horário da posição inválido."),
+            "rate_limited": (429, "Aguarde antes de enviar uma nova posição."),
+        }
+        status, detail = statuses.get(exc.reason, statuses["feature_unavailable"])
+        headers = {"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"}
+        if exc.retry_after:
+            headers["Retry-After"] = str(exc.retry_after)
+        return JSONResponse(
+            status_code=status,
+            content={"detail": detail, "reason": exc.reason},
+            headers=headers,
+        )
 
 
 def _record_access_safely(service: PublicTripService, link_id: str) -> None:

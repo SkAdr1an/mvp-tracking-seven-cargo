@@ -46,6 +46,30 @@ class PublicPosition(PublicCoordinate):
     source: str = "Rastreador do veículo"
 
 
+class PublicSourcePosition(PublicPosition):
+    accuracy_m: float | None = Field(default=None, ge=0)
+    age_seconds: int = Field(ge=0)
+    status: str
+
+
+class PublicLocationSources(BaseModel):
+    trafegus: PublicSourcePosition | None = None
+    mobile: PublicSourcePosition | None = None
+    difference_km: float | None = Field(default=None, ge=0)
+    situation: str
+
+
+class MobilePositionRequest(PublicCoordinate):
+    accuracy_m: float = Field(ge=0, le=10000)
+    recorded_at: datetime | None = None
+
+
+class MobilePositionAccepted(BaseModel):
+    accepted: bool = True
+    received_at: datetime
+    source: str = "LINK_MOTORISTA"
+
+
 class PublicVehicle(BaseModel):
     plate: str | None = None
     trailer_plate: str | None = None
@@ -88,6 +112,8 @@ class PublicTripResponse(BaseModel):
     finished: bool = False
     vehicle: PublicVehicle
     latest_position: PublicPosition | None = None
+    location_sources: PublicLocationSources
+    mobile_location_enabled: bool = False
     operational_instructions: list[str] = Field(default_factory=list)
     central_contact: PublicContact
     notices: list[PublicNotice] = Field(default_factory=list)

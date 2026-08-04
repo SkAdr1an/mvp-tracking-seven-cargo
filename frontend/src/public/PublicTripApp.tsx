@@ -1,12 +1,13 @@
 import {
   AlertTriangle, ArrowRight, CalendarClock, Clock3, MapPin, MessageCircle, Navigation, RefreshCw,
-  Satellite, ShieldCheck, Smartphone, Truck, UserRound, Wifi, WifiOff,
+  Satellite, ShieldCheck, Truck, UserRound, Wifi, WifiOff,
 } from 'lucide-react'
 import { PublicTripMap } from './PublicTripMap'
 import { usePublicTrip } from './hooks/usePublicTrip'
 import type { PublicTripFailureReason } from './errors'
 import type { PublicTrip } from './types'
 import { buildCentralWhatsAppUrl, locationAgeLabel } from './portalUtils'
+import { MobileLocationSharing } from './MobileLocationSharing'
 
 export function PublicTripApp({ token }: { token: string }) {
   const state = usePublicTrip(token)
@@ -79,6 +80,12 @@ export function PublicTripApp({ token }: { token: string }) {
         </div>
       </section>
 
+      <section className="public-card public-source-comparison" aria-label="Comparação das fontes de localização">
+        <SourceStatus label="Trafegus" source={trip.location_sources?.trafegus} />
+        <SourceStatus label="Celular" source={trip.location_sources?.mobile} />
+        <div className="public-source-result"><span>Resultado</span><strong>{sourceSituation(trip.location_sources?.situation)}</strong>{trip.location_sources?.difference_km != null && <small>Diferença aproximada: {trip.location_sources.difference_km.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km</small>}</div>
+      </section>
+
       <PublicTripMap key={token} trip={trip} />
 
       {trip.route.important_points.length > 0 && <InfoSection icon={<MapPin />} title="Pontos importantes">
@@ -93,11 +100,7 @@ export function PublicTripApp({ token }: { token: string }) {
           : <p>Nenhum alerta confirmado à frente neste momento.</p>}
       </InfoSection>
 
-      <section className="public-card public-sharing" aria-labelledby="sharing-title">
-        <Smartphone />
-        <div><span>Compartilhamento pelo celular</span><h2 id="sharing-title">Não iniciado</h2><p>O envio voluntário de localização será disponibilizado somente após seu consentimento. A página deverá permanecer aberta durante o compartilhamento.</p></div>
-        <span className="public-sharing-badge">Inativo</span>
-      </section>
+      <MobileLocationSharing token={token} enabled={trip.mobile_location_enabled} />
 
       <section className="public-card public-contact">
         <div><MessageCircle /><div><span>Precisa de ajuda?</span><strong>{trip.central_contact.name}</strong></div></div>
@@ -145,6 +148,14 @@ function RoutePoint({ label, place, destination = false }: {
 
 function Summary({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
   return <article className="public-summary"><i>{icon}</i><div><span>{label}</span><strong>{value}</strong></div></article>
+}
+
+function SourceStatus({ label, source }: { label: string; source?: PublicTrip['location_sources']['trafegus'] }) {
+  return <div><span>{label}</span><strong>{source ? (source.status === 'CURRENT' ? 'Atualizada' : 'Antiga') : 'Indisponível'}</strong><small>{source ? `${locationAgeLabel(source.recorded_at)}${source.accuracy_m != null ? ` · precisão ${Math.round(source.accuracy_m)} m` : ''}` : 'Nenhuma posição recebida'}</small></div>
+}
+
+function sourceSituation(value?: string): string {
+  return ({ TRAFEGUS_PRIMARY: 'Trafegus como fonte principal', MOBILE_COMPLEMENTARY: 'Celular como fonte complementar', DIVERGENT: 'Fontes divergentes — análise necessária', NO_COMMUNICATION: 'Sem comunicação', UNAVAILABLE: 'Comparação indisponível' } as Record<string, string>)[value || 'UNAVAILABLE']
 }
 
 function InfoSection({ icon, title, warning = false, children }: { icon: React.ReactNode; title: string; warning?: boolean; children: React.ReactNode }) {

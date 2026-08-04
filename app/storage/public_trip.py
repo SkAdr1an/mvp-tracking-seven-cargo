@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.storage.operations import OperationsRepository
@@ -51,6 +51,78 @@ class PublicTripRepository:
         self._public_incidents_available = {
             "publicly_visible", "public_title", "public_description"
         }.issubset(traffic_columns)
+
+    def mobile_schema_available(self) -> bool:
+        with self.operations.connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='portal_mobile_position_metadata'"
+            ).fetchone() is not None
+
+    def latest_position_by_source(self, trip_key: str, *, mobile: bool) -> dict[str, Any] | None:
+        operator = "=" if mobile else "<>"
+        with self.operations.connect() as connection:
+            row = connection.execute(
+                f"""SELECT p.latitude,p.longitude,p.speed_kmh,p.recorded_at,p.source,
+                            m.accuracy_m,m.received_at
+                     FROM operational_positions p
+                     LEFT JOIN portal_mobile_position_metadata m ON m.position_id=p.id
+                     WHERE p.trip_key=? AND p.accepted=1 AND UPPER(p.source){operator}'LINK_MOTORISTA'
+                     ORDER BY p.recorded_at DESC,p.id DESC LIMIT 1""",
+                (trip_key,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def save_mobile_position(
+        self,
+        *,
+        trip_key: str,
+        link_id: str,
+        fingerprint: str,
+        latitude: float,
+        longitude: float,
+        accuracy_m: float,
+        client_recorded_at: str | None,
+        received_at: str,
+        min_interval_seconds: int,
+        max_per_minute: int,
+    ) -> int:
+        with self.operations._lock, self.operations.connect() as connection:
+            last = connection.execute(
+                "SELECT received_at FROM portal_mobile_position_metadata "
+                "WHERE public_link_id=? ORDER BY received_at DESC LIMIT 1",
+                (link_id,),
+            ).fetchone()
+            window_start = (
+                datetime.fromisoformat(received_at) - timedelta(seconds=60)
+            ).isoformat()
+            recent = connection.execute(
+                "SELECT COUNT(*) FROM portal_mobile_position_metadata "
+                "WHERE public_link_id=? AND received_at>=?",
+                (link_id, window_start),
+            ).fetchone()[0]
+            if last:
+                elapsed = (
+                    datetime.fromisoformat(received_at) - datetime.fromisoformat(last["received_at"])
+                ).total_seconds()
+                if elapsed < min_interval_seconds:
+                    raise ValueError(f"rate_interval:{max(1, int(min_interval_seconds - elapsed))}")
+            if recent >= max_per_minute:
+                raise ValueError("rate_window:60")
+            cursor = connection.execute(
+                """INSERT INTO operational_positions(
+                   trip_key,fingerprint,latitude,longitude,speed_kmh,recorded_at,source,
+                   origin_distance_m,destination_distance_m,accepted,rejection_reason,created_at)
+                   VALUES(?,?,?,?,NULL,?,'LINK_MOTORISTA',NULL,NULL,1,NULL,?)""",
+                (trip_key, fingerprint, latitude, longitude, received_at, received_at),
+            )
+            connection.execute(
+                """INSERT INTO portal_mobile_position_metadata(
+                   position_id,public_link_id,accuracy_m,client_recorded_at,received_at)
+                   VALUES(?,?,?,?,?)""",
+                (cursor.lastrowid, link_id, accuracy_m, client_recorded_at, received_at),
+            )
+            return int(cursor.lastrowid)
 
     def active_for_trip(self, trip_key: str) -> dict[str, Any] | None:
         with self.operations.connect() as connection:

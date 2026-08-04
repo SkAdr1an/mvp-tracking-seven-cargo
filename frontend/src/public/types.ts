@@ -21,9 +21,25 @@ export interface PublicTrip {
   finished: boolean
   vehicle: { plate: string; trailer_plate?: string | null }
   latest_position?: (PublicCoordinate & { recorded_at: string; speed_kmh?: number | null; source: string }) | null
+  location_sources: {
+    trafegus?: SourcePosition | null
+    mobile?: SourcePosition | null
+    difference_km?: number | null
+    situation: 'TRAFEGUS_PRIMARY' | 'MOBILE_COMPLEMENTARY' | 'DIVERGENT' | 'NO_COMMUNICATION' | 'UNAVAILABLE'
+  }
+  mobile_location_enabled: boolean
   operational_instructions: string[]
   central_contact: { name: string; phone?: string | null }
   notices: Array<{ title: string; description: string; severity: string; updated_at: string }>
+}
+
+export interface SourcePosition extends PublicCoordinate {
+  recorded_at: string
+  speed_kmh?: number | null
+  source: string
+  accuracy_m?: number | null
+  age_seconds: number
+  status: 'CURRENT' | 'STALE'
 }
 
 export interface CachedPublicTrip {

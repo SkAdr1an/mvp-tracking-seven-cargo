@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import logging
+import math
 import re
 import secrets
 import sqlite3
@@ -12,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.core.config import get_settings
-from app.schemas.public_trip import PublicTripResponse
+from app.schemas.public_trip import MobilePositionRequest, PublicTripResponse
 from app.storage.operations import OperationsRepository
 from app.storage.public_trip import PublicTripRepository
 
@@ -33,9 +34,25 @@ FINAL_TRIP_STATES = frozenset({"FINALIZADA_NO_SISTEMA", "RETORNO_CONCLUIDO"})
 logger = logging.getLogger(__name__)
 
 
+def _distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    radius = 6371.0088
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+    value = math.sin(delta_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(delta_lambda / 2) ** 2
+    return round(radius * 2 * math.atan2(math.sqrt(value), math.sqrt(1 - value)), 3)
+
+
 class PublicTripUnavailable(Exception):
     def __init__(self, reason: str) -> None:
         self.reason = reason
+        super().__init__(reason)
+
+
+class MobileLocationRejected(Exception):
+    def __init__(self, reason: str, *, retry_after: int | None = None) -> None:
+        self.reason = reason
+        self.retry_after = retry_after
         super().__init__(reason)
 
 
@@ -137,8 +154,8 @@ class PublicTripService:
         return self.repository.revoke(trip_key, actor) is not None
 
     def resolve(self, token: str) -> tuple[PublicTripResponse, str]:
+        link, trip = self._resolve_active_link(token)
         token_hash = self.token_hash(token)
-        link = self.repository.by_hash(token_hash)
         self._development_log(
             "Public link lookup database=%s trip_id=%s hash_hint=%s found=%s",
             self.operations.database_path,
@@ -146,22 +163,61 @@ class PublicTripService:
             token_hash[:8],
             bool(link),
         )
-        now = datetime.now(timezone.utc)
+        return PublicTripResponse.model_validate(self._public_payload(trip)), link["id"]
+
+    def _resolve_active_link(self, token: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        link = self.repository.by_hash(self.token_hash(token))
         if not link:
             raise PublicTripUnavailable("invalid_token")
         trip = self.operations.trip(link["trip_key"])
         if trip and is_final_trip_state(trip.get("state")):
             self.repository.revoke_finished_trip(link["trip_key"])
             raise PublicTripUnavailable("trip_finished")
-        expires_at = _parse_datetime(link.get("expires_at")) if link else None
-        if link and expires_at and expires_at <= now:
+        expires_at = _parse_datetime(link.get("expires_at"))
+        if expires_at and expires_at <= datetime.now(timezone.utc):
             self.repository.expire(link["id"])
             raise PublicTripUnavailable("expired")
         if link.get("revoked_at") or not bool(link["active"]):
             raise PublicTripUnavailable("revoked")
         if not trip:
             raise PublicTripUnavailable("invalid_token")
-        return PublicTripResponse.model_validate(self._public_payload(trip)), link["id"]
+        return link, trip
+
+    def accept_mobile_position(self, token: str, payload: MobilePositionRequest) -> dict[str, Any]:
+        settings = get_settings()
+        if not settings.driver_mobile_location_enabled:
+            raise MobileLocationRejected("feature_disabled")
+        if not self.repository.mobile_schema_available():
+            raise MobileLocationRejected("feature_unavailable")
+        link, trip = self._resolve_active_link(token)
+        if payload.accuracy_m > settings.driver_mobile_location_max_accuracy_m:
+            raise MobileLocationRejected("accuracy_too_low")
+        received = datetime.now(timezone.utc)
+        client_at = payload.recorded_at
+        if client_at and client_at.tzinfo is None:
+            raise MobileLocationRejected("invalid_client_time")
+        if client_at and client_at.astimezone(timezone.utc) > received + timedelta(minutes=5):
+            raise MobileLocationRejected("invalid_client_time")
+        fingerprint = hashlib.sha256(
+            f"{trip['trip_key']}|{payload.latitude:.6f}|{payload.longitude:.6f}|{received.isoformat()}".encode()
+        ).hexdigest()
+        try:
+            self.repository.save_mobile_position(
+                trip_key=trip["trip_key"], link_id=link["id"], fingerprint=fingerprint,
+                latitude=payload.latitude, longitude=payload.longitude,
+                accuracy_m=payload.accuracy_m,
+                client_recorded_at=client_at.astimezone(timezone.utc).isoformat() if client_at else None,
+                received_at=received.isoformat(),
+                min_interval_seconds=max(settings.driver_mobile_location_min_interval_seconds, 1),
+                max_per_minute=max(settings.driver_mobile_location_max_per_minute, 1),
+            )
+        except ValueError as exc:
+            if str(exc).startswith("rate_"):
+                raise MobileLocationRejected(
+                    "rate_limited", retry_after=int(str(exc).rsplit(":", 1)[-1])
+                ) from exc
+            raise
+        return {"accepted": True, "received_at": received, "source": "LINK_MOTORISTA"}
 
     @staticmethod
     def _development_log(message: str, *args: Any) -> None:
@@ -215,6 +271,7 @@ class PublicTripService:
                 "source": self._public_position_source(latest_source),
             }
         settings = get_settings()
+        sources = self._location_sources(trip_key)
         instructions = [
             item.strip() for item in settings.public_trip_instructions.splitlines() if item.strip()
         ]
@@ -253,6 +310,10 @@ class PublicTripService:
                 "trailer_plate": trip.get("trailer_plate"),
             },
             "latest_position": position,
+            "location_sources": sources,
+            "mobile_location_enabled": bool(
+                settings.driver_mobile_location_enabled and self.repository.mobile_schema_available()
+            ),
             "operational_instructions": instructions,
             "central_contact": {
                 "name": settings.public_trip_contact_name,
@@ -269,6 +330,46 @@ class PublicTripService:
                 if item.get("description") and item.get("severity") and item.get("updated_at")
             ],
         }
+
+    def _location_sources(self, trip_key: str) -> dict[str, Any]:
+        settings = get_settings()
+        if not self.repository.mobile_schema_available():
+            return {"trafegus": None, "mobile": None, "difference_km": None, "situation": "UNAVAILABLE"}
+        primary = self.repository.latest_position_by_source(trip_key, mobile=False)
+        mobile = self.repository.latest_position_by_source(trip_key, mobile=True)
+        now = datetime.now(timezone.utc)
+
+        def present(value: dict[str, Any] | None, label: str) -> dict[str, Any] | None:
+            if not value:
+                return None
+            recorded = _parse_datetime(value.get("recorded_at"))
+            age = max(0, int((now - recorded.astimezone(timezone.utc)).total_seconds())) if recorded else 0
+            stale_after = (
+                settings.fleet_position_fresh_minutes if label == "Rastreador do veículo"
+                else settings.driver_mobile_location_stale_minutes
+            ) * 60
+            return {
+                "latitude": value["latitude"], "longitude": value["longitude"],
+                "speed_kmh": value.get("speed_kmh"), "recorded_at": recorded,
+                "source": label, "accuracy_m": value.get("accuracy_m"),
+                "age_seconds": age, "status": "STALE" if age > stale_after else "CURRENT",
+            }
+
+        trafegus = present(primary, "Rastreador do veículo")
+        cellular = present(mobile, "Celular do motorista")
+        difference = None
+        if trafegus and cellular:
+            difference = _distance_km(
+                trafegus["latitude"], trafegus["longitude"],
+                cellular["latitude"], cellular["longitude"],
+            )
+        if trafegus and trafegus["status"] == "CURRENT":
+            situation = "DIVERGENT" if difference is not None and difference > settings.driver_mobile_location_divergence_km else "TRAFEGUS_PRIMARY"
+        elif cellular and cellular["status"] == "CURRENT":
+            situation = "MOBILE_COMPLEMENTARY"
+        else:
+            situation = "NO_COMMUNICATION"
+        return {"trafegus": trafegus, "mobile": cellular, "difference_km": difference, "situation": situation}
 
     @staticmethod
     def _public_position_source(source: Any) -> str:
