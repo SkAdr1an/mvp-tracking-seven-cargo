@@ -1,0 +1,21 @@
+ATUALIZAÇÃO DA CONSULTA TRAFEGUS
+
+1. Feche o servidor do projeto, se estiver executando.
+2. Extraia o conteúdo de atualizacao-trafegus-seven-cargo.zip.
+3. Copie as pastas e arquivos extraídos para:
+   C:\Users\adria\mvp-tracking-seven-cargo
+4. Quando o Windows perguntar, escolha "Substituir os arquivos no destino".
+5. O arquivo .env existente não será apagado ou substituído.
+6. Abra o terminal do VS Code na pasta do projeto.
+7. Confirme que aparece (.venv) no início da linha do terminal.
+8. Execute:
+
+   python consultar_placa.py PYL0D91
+
+O comando realiza uma autenticação e quatro consultas GET (somente leitura):
+- cadastro do veículo;
+- última posição;
+- eventos;
+- última viagem.
+
+Por segurança, usuário, senha, token e CPF/CNPJ não são exibidos.

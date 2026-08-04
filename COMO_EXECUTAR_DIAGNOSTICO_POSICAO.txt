@@ -1,0 +1,21 @@
+ATUALIZAÇÃO — DIAGNÓSTICO DE POSIÇÃO TRAFEGUS
+
+1. Copie os arquivos deste pacote para:
+   C:\Users\adria\mvp-tracking-seven-cargo
+
+2. Confirme a substituição dos arquivos existentes.
+   O arquivo .env não faz parte deste pacote e não será alterado.
+
+3. No terminal do VS Code, com (.venv) ativo, execute:
+
+   python diagnosticar_posicao.py AWP7D63
+
+4. Para salvar o resultado:
+
+   python diagnosticar_posicao.py AWP7D63 > diagnostico_posicao_AWP7D63.json
+
+5. Envie o arquivo diagnostico_posicao_AWP7D63.json na conversa.
+
+O script autentica usando o .env local e realiza apenas consultas GET.
+Ele testa a posição por veículo, terminal e viagem, além de não conformidades.
+Credenciais, tokens, documentos, RENAVAM e chassi são ocultados.

@@ -1,0 +1,23 @@
+{
+  "name": "Seven Cargo",
+  "short_name": "Seven",
+  "description": "Portal de acompanhamento da viagem do motorista",
+  "scope": "/viagem/",
+  "display": "standalone",
+  "background_color": "#090909",
+  "theme_color": "#f3c623",
+  "icons": [
+    {
+      "src": "/viagem/icon-placeholder.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/viagem/icon-maskable-placeholder.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

@@ -1,0 +1,495 @@
+/* Adaptações do conteúdo interno. O layout desktop permanece regido por styles.css. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.driver-card__mobile-summary {
+  display: none;
+}
+
+.filter-field {
+  display: flex;
+}
+
+.filter-field select {
+  min-width: 0;
+}
+
+.diagnostic-details > summary {
+  display: none;
+}
+
+.diagnostic-details__content {
+  display: contents;
+}
+
+.overview-mobile-actions {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
+  body {
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  .page-content {
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    padding-left: max(16px, env(safe-area-inset-left));
+  }
+
+  .page-stack {
+    gap: 14px;
+  }
+
+  .panel {
+    max-width: 100%;
+  }
+
+  .overview-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .overview-metrics .metric {
+    min-width: 0;
+    min-height: 92px;
+  }
+
+  .operations-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .fleet-panel .driver-list {
+    max-height: min(48dvh, 430px);
+  }
+
+  .driver-row--clean {
+    min-height: 76px;
+  }
+
+  .driver-row--clean,
+  .driver-row__select {
+    touch-action: manipulation;
+  }
+
+  .trip-detail,
+  .route-form,
+  .route-result,
+  .provider-card,
+  .environment {
+    padding: 16px;
+  }
+
+  .route-layout,
+  .provider-grid,
+  .service-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .route-result__header h2,
+  .angellira-heading p,
+  .reference-list strong,
+  .reference-list small,
+  .provider-data dd,
+  .operation-history strong,
+  .operation-history small {
+    overflow-wrap: anywhere;
+  }
+
+  .primary-button,
+  .secondary-button,
+  .add-waypoint,
+  .waypoint-input > button,
+  .map-link,
+  .filters select,
+  .search,
+  .field,
+  .plate-search label,
+  .speed-range input {
+    min-height: 44px;
+  }
+
+  .table-toolbar {
+    align-items: stretch;
+  }
+
+  .filters {
+    min-width: 0;
+  }
+
+  .filters > *,
+  .filters select {
+    min-width: 0;
+  }
+
+  .driver-management-table {
+    overflow: visible;
+  }
+
+  .driver-management-table .data-table__row {
+    border: 1px solid var(--line);
+    border-radius: 11px;
+    margin: 10px;
+    width: calc(100% - 20px);
+    background: #0e1b15;
+  }
+
+  .driver-management-table .driver-open {
+    min-height: 44px;
+  }
+
+  .driver-management-table .driver-card__location,
+  .driver-management-table .driver-card__eta,
+  .driver-management-table .driver-card__updated {
+    display: none;
+  }
+
+  .driver-card__mobile-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(45, 63, 53, .55);
+  }
+
+  .driver-card__mobile-summary small,
+  .driver-card__mobile-summary b {
+    display: block;
+    min-width: 0;
+  }
+
+  .driver-card__mobile-summary small {
+    color: #c7d3cc;
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
+
+  .driver-card__mobile-summary b {
+    margin-bottom: 3px;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+  }
+
+  .management-actions {
+    align-items: stretch;
+    padding: 8px 8px 8px 0;
+  }
+
+  .management-actions button,
+  .hidden-management__list article > button,
+  .diagnostic-close {
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
+  }
+
+  .diagnostic-header h2 {
+    font-size: 17px;
+  }
+
+  .diagnostic-header p,
+  .diagnostic-explanation,
+  .diagnostic-kpis span,
+  .diagnostic-fact span,
+  .diagnostic-risk small,
+  .diagnostic-empty,
+  .scenario-grid span,
+  .scenario-grid p,
+  .diagnostic-line,
+  .driver-diagnostic footer {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .diagnostic-kpis strong,
+  .diagnostic-fact strong,
+  .diagnostic-risk strong,
+  .diagnostic-section h3 {
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .driver-diagnostic {
+    overflow: visible;
+  }
+
+  .diagnostic-identity__vehicle,
+  .diagnostic-identity__route {
+    overflow-wrap: anywhere;
+  }
+
+  .diagnostic-details {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: #0d1914;
+  }
+
+  .diagnostic-details > summary {
+    display: flex;
+    min-height: 44px;
+    align-items: center;
+    padding: 0 13px;
+    color: #d8e3dd;
+    font: 600 13px 'Manrope', sans-serif;
+    cursor: pointer;
+  }
+
+  .diagnostic-details > summary::marker {
+    color: var(--green);
+  }
+
+  .diagnostic-details__content {
+    display: block;
+    padding: 0 10px 10px;
+  }
+
+  .diagnostic-details__content > .diagnostic-section,
+  .diagnostic-details__content > .diagnostic-columns {
+    border: 0;
+    background: transparent;
+  }
+
+  .route-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .estimate-breakdown > div {
+    flex-wrap: wrap;
+  }
+
+  .provider-data {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .angellira-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reference-list article {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .page-content {
+    padding-top: 12px;
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-left: max(12px, env(safe-area-inset-left));
+  }
+
+  .panel__header,
+  .table-toolbar {
+    padding: 15px;
+  }
+
+  .overview-metrics,
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+
+  .overview-metrics .metric,
+  .metric {
+    min-height: 84px;
+    padding: 11px;
+    gap: 9px;
+  }
+
+  .metric__icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .metric span,
+  .metric small {
+    font-size: 11px;
+    line-height: 1.25;
+  }
+
+  .metric strong {
+    font-size: 20px;
+  }
+
+  .clear-filters {
+    min-height: 44px;
+    align-self: stretch;
+    justify-content: center;
+  }
+
+  .overview-metrics .metric--secondary {
+    display: none;
+  }
+
+  .overview-metrics--expanded .metric--secondary {
+    display: flex;
+  }
+
+  .overview-mobile-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .overview-mobile-actions button {
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #111f18;
+    color: #b8c8bf;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    font-size: 11px;
+  }
+
+  .filters,
+  .plate-search form,
+  .speed-range > div:last-child {
+    width: 100%;
+    flex-direction: column;
+    grid-template-columns: 1fr;
+  }
+
+  .filters .search,
+  .filters select,
+  .plate-search label,
+  .plate-search .primary-button {
+    width: 100%;
+  }
+
+  .driver-row--clean {
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    padding: 10px;
+  }
+
+  .driver-row__main small {
+    max-width: min(56vw, 260px);
+  }
+
+  .driver-row__meta {
+    min-width: 72px;
+  }
+
+  .trip-detail__heading,
+  .result-title,
+  .section-heading,
+  .route-result__header,
+  .angellira-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .trip-detail__grid,
+  .route-progress-stats,
+  .route-metrics,
+  .diagnostic-kpis,
+  .provider-data,
+  .angellira-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .traffic-comparison {
+    grid-template-columns: 1fr;
+  }
+
+  .route-result__header h2 {
+    display: block;
+    line-height: 1.5;
+  }
+
+  .route-result__header h2 svg {
+    display: none;
+  }
+
+  .estimate-breakdown > div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .estimate-breakdown > div > svg {
+    align-self: center;
+    transform: rotate(90deg);
+  }
+
+  .hidden-management,
+  .hidden-management__list {
+    grid-template-columns: 1fr;
+  }
+
+  .hidden-management__actions,
+  .hidden-management__actions button {
+    width: 100%;
+  }
+
+  .reference-list article,
+  .reference-notice,
+  .risk-language {
+    font-size: 12px;
+  }
+
+  .table-empty,
+  .empty-list,
+  .result-empty,
+  .provider-empty {
+    padding: 40px 18px;
+  }
+}
+
+@media (max-width: 380px) {
+  .overview-metrics .metric,
+  .metric {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .metric__icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 560px) {
+  .page-content {
+    padding-top: 10px;
+  }
+
+  .fleet-panel .driver-list {
+    max-height: 65dvh;
+  }
+
+  .provider-empty,
+  .result-empty {
+    min-height: 220px;
+  }
+}
+
+@media (hover: none) and (pointer: coarse) {
+  button,
+  a,
+  select,
+  input {
+    touch-action: manipulation;
+  }
+
+  button:active,
+  a:active {
+    filter: brightness(1.12);
+  }
+}

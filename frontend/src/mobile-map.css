@@ -1,0 +1,22 @@
+.operational-map .map-filters-toggle{display:none}
+.operational-map .leaflet-popup-content-wrapper{max-width:calc(100vw - 48px)}
+.operational-map .leaflet-popup-content{max-width:calc(100vw - 80px);overflow-wrap:anywhere}
+.operational-dialog-backdrop{position:fixed;z-index:1100;inset:0;display:grid;place-items:center;padding:calc(16px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));background:rgba(0,0,0,.72)}
+.operational-dialog{width:min(520px,100%);max-height:calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));overflow:auto;overscroll-behavior:contain;padding:20px;border:1px solid #465348;border-radius:12px;background:#0b1711;color:#dbe7e0;box-shadow:0 20px 60px #000;display:grid;gap:14px}
+.operational-dialog header,.operational-dialog footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.operational-dialog h2{margin-top:4px;font-size:18px}.operational-dialog>p{color:#91a198;font-size:11px;line-height:1.55}.operational-dialog__close{width:44px;height:44px;display:grid;place-items:center;border:1px solid #34473d;border-radius:9px;background:#101d17;color:#b8c8bf}.operational-dialog__context{padding:12px;border:1px solid #304139;border-radius:9px;background:#101d17;display:grid;gap:4px;font-size:11px}.operational-dialog__context strong,.operational-dialog__context span{overflow-wrap:anywhere}.operational-dialog__fields{display:grid;gap:12px}.operational-dialog__fields label{display:grid;gap:6px;font-size:11px}.operational-dialog__fields input,.operational-dialog__fields select,.operational-dialog__fields textarea{width:100%;min-height:44px;border:1px solid #34473d;border-radius:8px;background:#101d17;color:#dbe7e0;padding:10px;font:inherit;font-size:16px}.operational-dialog__fields textarea{resize:vertical}.operational-dialog__fields small{color:#829189}.operational-dialog footer{position:sticky;bottom:-20px;margin:0 -20px -20px;padding:14px 20px calc(14px + env(safe-area-inset-bottom));background:#0b1711;border-top:1px solid #26382f}.operational-dialog footer button{min-height:44px}.danger-button{min-height:44px;border:1px solid #ef6a5b;border-radius:8px;background:#5b211d;color:#fff;padding:0 16px;cursor:pointer}
+.operation-feedback{margin-top:12px;padding:10px;border:1px solid rgba(61,220,151,.35);border-radius:8px;background:rgba(61,220,151,.08);color:#8de0b8;font-size:10px}
+@media(max-width:900px){
+  .operational-map{height:clamp(340px,58dvh,430px)}
+  .operational-map .map-filters-toggle{display:flex;position:absolute;z-index:610;top:10px;right:10px;min-width:44px;min-height:44px;align-items:center;justify-content:center;border:1px solid #3c453e;border-radius:22px;background:rgba(10,20,14,.96);color:#d5e2da;padding:0 13px}
+  .operational-map .map-filters{top:62px;right:10px;left:auto;max-width:min(250px,calc(100% - 64px));max-height:calc(100% - 130px);padding:8px;overflow:auto;background:rgba(10,20,14,.96);border:1px solid #3c453e;border-radius:10px;display:none}
+  .operational-map .map-filters.map-filters--open{display:flex}
+  .operational-map .map-filters button{min-height:44px;height:auto;font-size:11px;padding:8px 13px}
+  .operational-map .map__legend{max-width:calc(100% - 20px);max-height:72px;overflow:auto}
+  .manual-incident-form{top:auto!important;right:8px!important;bottom:8px;left:8px!important;width:auto!important;max-height:calc(100dvh - 110px)!important;padding-bottom:calc(14px + env(safe-area-inset-bottom));overflow:auto;overscroll-behavior:contain}
+  .manual-incident-form input,.manual-incident-form select,.manual-incident-form button{min-height:44px!important;font-size:16px!important}
+  .manual-incident-form>div:first-child button{min-width:44px}
+  .operation-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .operation-actions button,.return-actions button{min-height:44px;font-size:11px}
+  .operation-history>div{grid-template-columns:1fr}.operation-history small{grid-column:1}
+}
+@media(max-width:430px){.operation-grid{grid-template-columns:1fr}.return-actions{display:grid;grid-template-columns:1fr}.operational-dialog-backdrop{padding:0}.operational-dialog{height:100dvh;max-height:100dvh;border-radius:0;padding-top:calc(16px + env(safe-area-inset-top))}}

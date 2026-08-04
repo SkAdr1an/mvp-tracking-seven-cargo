@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>7Seven Cargo - Rastreamento em Tempo Real</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+        }
+        
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            height: 100vh;
+            gap: 10px;
+            padding: 10px;
+        }
+        
+        #map {
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .sidebar {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 15px;
+            overflow-y: auto;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        }
+        
+        .driver-item {
+            background: #3a3a3a;
+            padding: 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
+            border-left: 4px solid #4CAF50;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .driver-item:hover {
+            background: #454545;
+            transform: translateX(5px);
+        }
+        
+        .driver-item.offline {
+            border-left-color: #f44336;
+            opacity: 0.6;
+        }
+        
+        .driver-name {
+            font-weight: bold;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+        
+        .driver-status {
+            font-size: 12px;
+            color: #4CAF50;
+        }
+        
+        .driver-item.offline .driver-status {
+            color: #f44336;
+        }
+        
+        .driver-coords {
+            font-size: 11px;
+            color: #888;
+            margin-top: 4px;
+        }
+        
+        .driver-speed {
+            font-size: 11px;
+            color: #FFB74D;
+            margin-top: 2px;
+        }
+        
+        .stats {
+            background: #3a3a3a;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #888;
+            margin-top: 4px;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #4CAF50;
+            margin-right: 6px;
+        }
+        
+        .status-indicator.offline {
+            background: #f44336;
+        }
+        
+        .ws-status {
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .ws-status.connected {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4CAF50;
+        }
+        
+        .ws-status.disconnected {
+            background: rgba(244, 67, 54, 0.2);
+            color: #f44336;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div id="map"></div>
+        <div class="sidebar">
+            <div class="ws-status disconnected" id="wsStatus">
+                <span class="status-indicator offline"></span> Desconectado
+            </div>
+            
+            <div class="stats">
+                <div class="stat-number" id="driverCount">0</div>
+                <div class="stat-label">Motoristas Online</div>
+            </div>
+            
+            <div id="driversList"></div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Inicializar mapa
+        const map = L.map('map').setView([-15.8267, -47.8822], 6); // Centro do Brasil
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Markers dos motoristas
+        const drivers = {};
+        
+        // Conectar ao WebSocket do Manager
+        const trackingToken = new URLSearchParams(window.location.search).get('token') || '';
+        const wsScheme = window.location.protocol === 'https:' ? 'wss' : 'ws';
+        const wsHost = window.location.host || 'localhost:8000';
+        const tokenQuery = trackingToken ? `?token=${encodeURIComponent(trackingToken)}` : '';
+        const ws = new WebSocket(`${wsScheme}://${wsHost}/tracking/ws/manager${tokenQuery}`);
+        
+        ws.onopen = () => {
+            console.log('✅ Conectado ao servidor');
+            updateWSStatus(true);
+        };
+        
+        ws.onmessage = (event) => {
+            const message = JSON.parse(event.data);
+            
+            if (message.type === 'initial_drivers') {
+                // Carregar motoristas iniciais
+                Object.entries(message.drivers).forEach(([driverId, driverData]) => {
+                    if (driverData.location) {
+                        updateDriverMarker(driverId, driverData);
+                    }
+                });
+            } else if (message.type === 'driver_update') {
+                // Atualização em tempo real
+                updateDriverMarker(message.driver_id, {
+                    location: message.location,
+                    last_update: message.timestamp,
+                    status: message.status
+                });
+            }
+            
+            updateDriversList();
+        };
+        
+        ws.onerror = () => {
+            console.error('❌ Erro WebSocket');
+            updateWSStatus(false);
+        };
+        
+        ws.onclose = () => {
+            console.log('❌ Desconectado');
+            updateWSStatus(false);
+            // Reconectar em 3 segundos
+            setTimeout(() => {
+                location.reload();
+            }, 3000);
+        };
+        
+        function updateWSStatus(connected) {
+            const statusEl = document.getElementById('wsStatus');
+            const indicator = statusEl.querySelector('.status-indicator');
+            
+            if (connected) {
+                statusEl.classList.remove('disconnected');
+                statusEl.classList.add('connected');
+                indicator.classList.remove('offline');
+                statusEl.innerHTML = '<span class="status-indicator"></span> Conectado';
+            } else {
+                statusEl.classList.remove('connected');
+                statusEl.classList.add('disconnected');
+                indicator.classList.add('offline');
+                statusEl.innerHTML = '<span class="status-indicator offline"></span> Desconectado';
+            }
+        }
+        
+        function updateDriverMarker(driverId, driverData) {
+            const location = driverData.location;
+            
+            if (!location) return;
+            
+            // Criar/atualizar marcador
+            if (!drivers[driverId]) {
+                drivers[driverId] = {
+                    marker: L.circleMarker([location.latitude, location.longitude], {
+                        radius: 8,
+                        fillColor: '#4CAF50',
+                        color: '#fff',
+                        weight: 2,
+                        opacity: 1,
+                        fillOpacity: 0.8
+                    }).addTo(map),
+                    popup: null,
+                    lastUpdate: new Date()
+                };
+            } else {
+                // Mover marcador
+                drivers[driverId].marker.setLatLng([location.latitude, location.longitude]);
+            }
+            
+            // Atualizar dados
+            drivers[driverId].location = location;
+            drivers[driverId].status = driverData.status || 'online';
+            drivers[driverId].lastUpdate = new Date(driverData.last_update || Date.now());
+            
+            // Popup do marcador
+            const speedText = location.speed_kmh ? `${location.speed_kmh.toFixed(1)} km/h` : 'N/A';
+            const popup = `
+                <strong>${driverId}</strong><br>
+                Lat: ${location.latitude.toFixed(4)}<br>
+                Lng: ${location.longitude.toFixed(4)}<br>
+                Velocidade: ${speedText}<br>
+                Atualizado: ${drivers[driverId].lastUpdate.toLocaleTimeString('pt-BR')}
+            `;
+            
+            if (drivers[driverId].marker.getPopup()) {
+                drivers[driverId].marker.getPopup().setContent(popup);
+            } else {
+                drivers[driverId].marker.bindPopup(popup);
+            }
+            
+            // Mudar cor baseado na velocidade
+            if (location.speed_kmh > 120) {
+                drivers[driverId].marker.setStyle({ fillColor: '#f44336' });
+            } else if (location.speed_kmh > 80) {
+                drivers[driverId].marker.setStyle({ fillColor: '#FF9800' });
+            } else {
+                drivers[driverId].marker.setStyle({ fillColor: '#4CAF50' });
+            }
+            
+            // Click para centralizar
+            drivers[driverId].marker.on('click', () => {
+                map.setView([location.latitude, location.longitude], 12);
+            });
+        }
+        
+        function updateDriversList() {
+            const driversList = document.getElementById('driversList');
+            const driverCount = document.getElementById('driverCount');
+            
+            driversList.innerHTML = '';
+            let onlineCount = 0;
+            
+            Object.entries(drivers).forEach(([driverId, driverData]) => {
+                if (driverData.status === 'online') onlineCount++;
+                
+                const div = document.createElement('div');
+                div.className = `driver-item ${driverData.status === 'offline' ? 'offline' : ''}`;
+                
+                const speed = driverData.location?.speed_kmh 
+                    ? `${driverData.location.speed_kmh.toFixed(1)} km/h` 
+                    : 'N/A';
+                
+                const timeDiff = Math.round((Date.now() - driverData.lastUpdate.getTime()) / 1000);
+                const timeText = timeDiff < 60 ? `${timeDiff}s` : `${Math.round(timeDiff/60)}min`;
+                
+                div.innerHTML = `
+                    <div class="driver-name">${driverId}</div>
+                    <div class="driver-status">
+                        <span class="status-indicator ${driverData.status === 'offline' ? 'offline' : ''}"></span>
+                        ${driverData.status === 'offline' ? 'Offline' : 'Online'}
+                    </div>
+                    <div class="driver-coords">
+                        ${driverData.location?.latitude.toFixed(4)}, ${driverData.location?.longitude.toFixed(4)}
+                    </div>
+                    <div class="driver-speed">🏎️ ${speed}</div>
+                    <div class="driver-coords">⏱️ ${timeText} atrás</div>
+                `;
+                
+                div.onclick = () => {
+                    if (driverData.location) {
+                        map.setView([driverData.location.latitude, driverData.location.longitude], 12);
+                        driverData.marker.openPopup();
+                    }
+                };
+                
+                driversList.appendChild(div);
+            });
+            
+            driverCount.textContent = onlineCount;
+        }
+    </script>
+</body>
+</html>

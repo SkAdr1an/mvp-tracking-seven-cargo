@@ -1,0 +1,2 @@
+"""Camada de persistencia operacional."""
+

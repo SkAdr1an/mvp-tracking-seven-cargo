@@ -1,0 +1,32 @@
+CORREÇÃO DA POSIÇÃO — TRAFEGUS / SEVEN CARGO
+
+1. Copie o conteúdo deste pacote para:
+   C:\Users\adria\mvp-tracking-seven-cargo
+
+2. Confirme a substituição dos arquivos existentes.
+   O pacote não contém o arquivo .env e não substitui suas credenciais.
+
+3. Abra o arquivo .env e acrescente uma única linha, usando o CNPJ da
+   Seven Cargo somente com números:
+
+   TRAFEGUS_DOCUMENTO=00000000000000
+
+4. No terminal do VS Code, com o ambiente (.venv) ativo, execute:
+
+   python diagnosticar_posicao.py AWP7D63 > diagnostico_posicao_AWP7D63.json
+
+5. Para abrir a pasta onde o resultado foi salvo:
+
+   explorer .
+
+6. Envie o arquivo diagnostico_posicao_AWP7D63.json para análise.
+
+O QUE FOI CORRIGIDO
+
+- Usa o endpoint oficial GET /ultima-posicao-viagem.
+- Não depende de IdPosicao para localizar viagens em andamento.
+- Filtra a placa solicitada dentro das viagens ativas retornadas.
+- Corrige não conformidades para GET /naoconformidadeveiculo.
+- Continua em modo somente leitura e oculta documentos no relatório.
+
+Não envie o arquivo .env nem compartilhe usuário ou senha.

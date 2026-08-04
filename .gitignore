@@ -3,9 +3,102 @@ __pycache__/
 *.pyo
 *.pyd
 *.sqlite3
+*.db
+data/
 .env
 .venv/
+.venv-codex/
 venv/
 .pytest_cache/
 .idea/
 .vscode/
+frontend/node_modules/
+frontend/dist/
+frontend/.tools/
+frontend/*.tsbuildinfo
+diagnostico*.json
+.env
+.env.local
+.env.production
+.env.development
+*.env.local
+
+# Secrets and local credentials
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+
+# Runtime logs and process output
+*.log
+*.out
+*.pid
+logs/
+.runtime/
+
+# Databases, backups, and operational data
+*.sqlite
+*.sqlite3
+*.db
+*.db-*
+*.backup
+*.bak
+backups/
+data/
+operational-data/
+
+# Virtual environments and tool caches
+.venv*/
+venv*/
+env/
+.pytest-*/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Browser and automation profiles
+.edge-cdp-profile/
+.chrome-profile/
+.playwright/
+playwright-report/
+test-results/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+~$*
+
+# Diagnostic captures and generated media
+*diagnostic*.png
+*diagnostico*.png
+public-trip-*.png
+screenshots/
+
+# Local agent metadata
+.agents/
+
+# Frontend generated artifacts
+frontend/coverage/
+frontend/.vite/
+frontend/.eslintcache
+
+# Packaged and generated artifacts
+dist/
+build/
+*.zip
+*.tar
+*.gz
+
+# Local packaged copies of this repository
+/trafegus-seven-cargo/
+/correcao-posicao-trafegus-seven-cargo/
