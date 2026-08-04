@@ -25,6 +25,7 @@ test('portal preserves the operational areas introduced in stage 1', () => {
   assert.match(app, /Próximos alertas/)
   assert.match(sharing, /Compartilhamento pelo celular/)
   assert.match(app, /WhatsApp Central/)
-  assert.match(sharing, /A página deverá permanecer aberta/)
+  assert.match(sharing, /Compartilhar localização/)
+  assert.doesNotMatch(sharing, /A página deverá permanecer aberta/)
   assert.match(styles, /@media\(max-width:600px\)/)
 })

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { sendMobilePosition } from '../api'
 
-export type MobileSharingState = 'idle' | 'consent' | 'sharing' | 'denied' | 'unavailable' | 'stopped' | 'error'
+export type MobileSharingState = 'idle' | 'sharing' | 'denied' | 'unavailable' | 'stopped' | 'error'
 
 export function useMobileLocation(token: string, enabled: boolean) {
   const [status, setStatus] = useState<MobileSharingState>('idle')
@@ -17,10 +17,6 @@ export function useMobileLocation(token: string, enabled: boolean) {
     }
     if (active.current) setStatus('stopped')
   }, [])
-
-  const requestConsent = useCallback(() => {
-    if (enabled) setStatus('consent')
-  }, [enabled])
 
   const start = useCallback(() => {
     if (!enabled || !navigator.geolocation) {
@@ -61,5 +57,5 @@ export function useMobileLocation(token: string, enabled: boolean) {
     }
   }, [token])
 
-  return { status, message, requestConsent, start, stop }
+  return { status, message, start, stop }
 }

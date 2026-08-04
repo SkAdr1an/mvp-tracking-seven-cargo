@@ -6,19 +6,18 @@ const sharing = readFileSync(new URL('./MobileLocationSharing.tsx', import.meta.
 const hook = readFileSync(new URL('./hooks/useMobileLocation.ts', import.meta.url), 'utf8')
 const api = readFileSync(new URL('./api.ts', import.meta.url), 'utf8')
 
-test('GPS permission is requested only after explicit consent action', () => {
-  assert.match(sharing, /Entendi e quero compartilhar/)
+test('GPS permission is requested only after the driver presses the share button', () => {
+  assert.match(sharing, /Compartilhar localização/)
   assert.match(sharing, /onClick=\{sharing\.start\}/)
   assert.match(hook, /navigator\.geolocation\.watchPosition/)
   assert.doesNotMatch(hook, /useEffect\([\s\S]{0,200}watchPosition/)
 })
 
-test('consent explains collection, interruption and browser limitations', () => {
-  assert.match(sharing, /latitude, longitude, precisão e horário/)
-  assert.match(sharing, /pode ser interrompido/)
-  assert.match(sharing, /página deve permanecer aberta/)
-  assert.match(sharing, /tela estiver bloqueada ou minimizada/)
-  assert.match(sharing, /link deixa de aceitar posições quando expira/)
+test('portal keeps the GPS communication concise for verbal operational guidance', () => {
+  assert.doesNotMatch(sharing, /latitude, longitude, precisão e horário/)
+  assert.doesNotMatch(sharing, /tela bloqueada|navegador minimizado/)
+  assert.doesNotMatch(sharing, /link deixa de aceitar posições/)
+  assert.match(sharing, /Interromper/)
 })
 
 test('mobile positions remain token scoped and are throttled client side', () => {
