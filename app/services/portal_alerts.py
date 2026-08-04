@@ -20,7 +20,9 @@ class PortalAlertService:
         link, trip = self.public_trips._resolve_active_link(token)
         settings = get_settings()
         now = datetime.now(timezone.utc)
-        if not settings.driver_portal_alerts_enabled:
+        if not settings.driver_portal_feature_allowed(
+            trip["trip_key"], settings.driver_portal_alerts_enabled
+        ):
             return {"enabled": False, "alerts": [], "integrations": {"portal_alerts": "DISABLED"}, "generated_at": now}
         if not self.repository.alert_schema_available():
             return {"enabled": False, "alerts": [], "integrations": {"portal_alerts": "UNAVAILABLE"}, "generated_at": now}

@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     driver_mobile_location_stale_minutes: int = 10
     driver_mobile_location_divergence_km: float = 5
     driver_portal_alerts_enabled: bool = False
+    driver_portal_pilot_trip_keys: str = ""
     driver_alert_max_age_minutes: int = 180
     driver_alert_route_corridor_km: float = 5
     driver_alert_slow_traffic_first_km: float = 10
@@ -110,6 +111,15 @@ class Settings(BaseSettings):
     @property
     def development(self) -> bool:
         return self.app_environment.strip().lower() in {"development", "dev", "local"}
+
+    def driver_portal_feature_allowed(self, trip_key: str, enabled: bool) -> bool:
+        """Require both the feature switch and an explicit pilot trip allowlist."""
+        selected = {
+            value.strip()
+            for value in self.driver_portal_pilot_trip_keys.split(",")
+            if value.strip()
+        }
+        return bool(enabled and trip_key in selected)
 
     def validate_public_trip_runtime(self) -> None:
         if not self.public_trip_token_pepper.strip():

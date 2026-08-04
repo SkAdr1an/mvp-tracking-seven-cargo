@@ -19,6 +19,7 @@ def mobile_portal(tmp_path, monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "public_trip_token_pepper", "mobile-test-pepper")
     monkeypatch.setattr(settings, "driver_mobile_location_enabled", True)
+    monkeypatch.setattr(settings, "driver_portal_pilot_trip_keys", "trip-a")
     monkeypatch.setattr(settings, "driver_mobile_location_min_interval_seconds", 15)
     monkeypatch.setattr(settings, "driver_mobile_location_max_per_minute", 6)
     monkeypatch.setattr(settings, "driver_mobile_location_max_accuracy_m", 1000)
@@ -153,6 +154,40 @@ def test_current_sources_far_apart_are_flagged_as_divergent(mobile_portal):
     sources = client.get(f"/api/public/trips/{token}").json()["location_sources"]
     assert sources["difference_km"] > 5
     assert sources["situation"] == "DIVERGENT"
+
+
+def test_both_stale_sources_report_no_communication(mobile_portal):
+    client, _, repository, token = mobile_portal
+    old = datetime.now(timezone.utc) - timedelta(hours=2)
+    repository.add_position(
+        "trip-a", -19.5, -43.5, 50, old.isoformat(), "trafegus:fleet", None, None,
+    )
+    _, fingerprint = repository.add_position(
+        "trip-a", -19.5, -43.5, 0, old.isoformat(), "LINK_MOTORISTA", None, None,
+    )
+    with repository.connect() as connection:
+        connection.execute(
+            """INSERT INTO portal_mobile_position_metadata(
+                position_id,public_link_id,accuracy_m,client_recorded_at,received_at
+            ) SELECT id,(SELECT id FROM public_trip_links LIMIT 1),25,?,? FROM operational_positions
+              WHERE fingerprint=?""",
+            (old.isoformat(), old.isoformat(), fingerprint),
+        )
+    sources = client.get(f"/api/public/trips/{token}").json()["location_sources"]
+    assert sources["trafegus"]["status"] == "STALE"
+    assert sources["mobile"]["status"] == "STALE"
+    assert sources["situation"] == "NO_COMMUNICATION"
+
+
+def test_unselected_trip_cannot_enable_or_submit_mobile_location(mobile_portal):
+    client, service, _, _ = mobile_portal
+    _, token = service.create_link("trip-b", None, "test")
+    portal = client.get(f"/api/public/trips/{token}")
+    assert portal.status_code == 200
+    assert portal.json()["mobile_location_enabled"] is False
+    response = client.post(f"/api/public/trips/{token}/positions", json=payload())
+    assert response.status_code == 404
+    assert response.json()["reason"] == "feature_disabled"
 
 
 def test_migration_applies_and_reverses_without_changing_existing_rows(tmp_path):

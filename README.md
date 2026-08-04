@@ -395,3 +395,9 @@ Se uma nova versão falhar na importação, não edite o banco manualmente:
 confira primeiro o caminho, o manifesto e os checksums. Corrija a origem do
 pacote e repita o comando; a transação é revertida integralmente em caso de
 erro.
+
+## Homologação controlada do Portal do Motorista
+
+A Etapa 4 exige flags globais e uma lista explícita de viagens piloto. Consulte
+`docs/driver-portal-homologation.md` para ativação, desativação, roteiro de teste
+em Android/iPhone, métricas e limitações de funcionamento em segundo plano.

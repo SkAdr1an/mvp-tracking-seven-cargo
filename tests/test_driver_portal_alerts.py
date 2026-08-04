@@ -22,6 +22,7 @@ def alert_portal(tmp_path, monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "public_trip_token_pepper", "alert-test-pepper")
     monkeypatch.setattr(settings, "driver_portal_alerts_enabled", True)
+    monkeypatch.setattr(settings, "driver_portal_pilot_trip_keys", "trip-alert")
     monkeypatch.setattr(settings, "driver_alert_max_age_minutes", 180)
     monkeypatch.setattr(settings, "driver_alert_route_corridor_km", 5)
     database = tmp_path / "alerts.db"
@@ -143,6 +144,17 @@ def test_feature_disabled_invalid_link_and_degraded_integrations_are_safe(alert_
     monkeypatch.setattr(get_settings(), "driver_portal_alerts_enabled", False)
     disabled = client.get(f"/api/public/trips/{token}/alerts").json()
     assert disabled["enabled"] is False and disabled["alerts"] == []
+
+
+def test_alerts_remain_disabled_for_trip_outside_pilot_allowlist(alert_portal):
+    client, service, repository, _, _ = alert_portal
+    repository.ensure_trip("trip-not-selected", "ZZZ9Z99", "provider", "route-alert")
+    _, token = service.create_link("trip-not-selected", None, "test")
+    portal = client.get(f"/api/public/trips/{token}").json()
+    alerts = client.get(f"/api/public/trips/{token}/alerts").json()
+    assert portal["portal_alerts_enabled"] is False
+    assert alerts["enabled"] is False
+    assert alerts["alerts"] == []
 
 
 def test_cached_weather_and_active_deviation_are_reused_without_external_calls(alert_portal):

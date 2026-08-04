@@ -185,11 +185,13 @@ class PublicTripService:
 
     def accept_mobile_position(self, token: str, payload: MobilePositionRequest) -> dict[str, Any]:
         settings = get_settings()
-        if not settings.driver_mobile_location_enabled:
+        link, trip = self._resolve_active_link(token)
+        if not settings.driver_portal_feature_allowed(
+            trip["trip_key"], settings.driver_mobile_location_enabled
+        ):
             raise MobileLocationRejected("feature_disabled")
         if not self.repository.mobile_schema_available():
             raise MobileLocationRejected("feature_unavailable")
-        link, trip = self._resolve_active_link(token)
         if payload.accuracy_m > settings.driver_mobile_location_max_accuracy_m:
             raise MobileLocationRejected("accuracy_too_low")
         received = datetime.now(timezone.utc)
@@ -312,9 +314,13 @@ class PublicTripService:
             "latest_position": position,
             "location_sources": sources,
             "mobile_location_enabled": bool(
-                settings.driver_mobile_location_enabled and self.repository.mobile_schema_available()
+                settings.driver_portal_feature_allowed(
+                    trip_key, settings.driver_mobile_location_enabled
+                ) and self.repository.mobile_schema_available()
             ),
-            "portal_alerts_enabled": bool(settings.driver_portal_alerts_enabled),
+            "portal_alerts_enabled": settings.driver_portal_feature_allowed(
+                trip_key, settings.driver_portal_alerts_enabled
+            ),
             "operational_instructions": instructions,
             "central_contact": {
                 "name": settings.public_trip_contact_name,
