@@ -16,6 +16,7 @@ from app.storage.operations import OperationsRepository
 class GeneratedReport:
     html_path: str
     json_path: str
+    pdf_path: str | None
     generated_at: str
     sha256: str
     evidence_level: str
@@ -81,8 +82,16 @@ class TripReportService:
         self._atomic_write(json_path, json.dumps(evidence, ensure_ascii=False, indent=2, default=str))
         rendered = self._render(evidence, generated)
         self._atomic_write(html_path, rendered)
+        pdf_path: str | None = None
+        try:
+            from app.services.pdf_renderer import render_html_to_pdf
+
+            pdf_path = str(render_html_to_pdf(html_path))
+        except Exception:
+            # HTML and evidence remain authoritative when a browser is unavailable.
+            pdf_path = None
         return GeneratedReport(
-            html_path=str(html_path), json_path=str(json_path),
+            html_path=str(html_path), json_path=str(json_path), pdf_path=pdf_path,
             generated_at=generated.isoformat(),
             sha256=hashlib.sha256(rendered.encode("utf-8")).hexdigest(),
             evidence_level=evidence["summary"]["delay_evidence"],
@@ -123,6 +132,7 @@ header{{background:#12395b;color:white;padding:32px;border-radius:12px}}h1{{marg
 .cards{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0}}
 article{{padding:16px;border:1px solid #dbe3ea;border-radius:9px}}small,strong{{display:block}}strong{{font-size:22px;margin-top:8px}}
 .warning{{background:#fff4d6;border-left:5px solid #e4a300;padding:14px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:9px;border-bottom:1px solid #ddd;text-align:left}}th{{background:#12395b;color:white}}
+@page{{size:A4;margin:12mm}}@media print{{body{{margin:0;padding:0;max-width:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}}header,article,table,.warning{{break-inside:avoid}}h2{{break-after:avoid}}thead{{display:table-header-group}}tr{{break-inside:avoid}}}}
 </style></head><body><header><small>Seven Cargo · Relatório automático</small>
 <h1>{html.escape(trip.get('current_driver') or 'Motorista não informado')}</h1>
 <p>{html.escape(trip['plate'])} · {html.escape(route['name'] if route else 'Rota não associada')}</p></header>
