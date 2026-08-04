@@ -44,6 +44,17 @@ class FleetTrackingService:
         self.last_trafegus_request_count: int | None = None
         self.diagnostics = OperationalDiagnosticService(trip_operations_service.repository)
 
+    def cached_trip(self, trip_key: str) -> dict[str, Any] | None:
+        """Return already collected data without triggering any external integration."""
+        if not self._snapshot:
+            return None
+        for trip in self._snapshot.get("trips") or []:
+            if (trip.get("operational") or {}).get("trip_key") == trip_key:
+                result = deepcopy(trip)
+                result["portal_snapshot_generated_at"] = self._snapshot.get("generated_at")
+                return result
+        return None
+
     def trafegus_health(self) -> dict[str, Any]:
         client = TrafegusClient()
         configured = bool(client.username and client.password and client.document)

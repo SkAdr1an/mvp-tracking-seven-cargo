@@ -70,6 +70,30 @@ class MobilePositionAccepted(BaseModel):
     source: str = "LINK_MOTORISTA"
 
 
+class DriverPortalAlert(BaseModel):
+    id: str
+    type: str
+    severity: str
+    distance_km: float | None = Field(default=None, ge=0)
+    reference: str | None = None
+    updated_at: datetime
+    source: str
+    guidance: str
+    description: str
+    delay_minutes: float | None = Field(default=None, ge=0)
+    distance_band: str
+    presentation: str
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
+
+class DriverPortalAlertsResponse(BaseModel):
+    enabled: bool
+    alerts: list[DriverPortalAlert] = Field(default_factory=list)
+    integrations: dict[str, str] = Field(default_factory=dict)
+    generated_at: datetime
+
+
 class PublicVehicle(BaseModel):
     plate: str | None = None
     trailer_plate: str | None = None
@@ -114,6 +138,7 @@ class PublicTripResponse(BaseModel):
     latest_position: PublicPosition | None = None
     location_sources: PublicLocationSources
     mobile_location_enabled: bool = False
+    portal_alerts_enabled: bool = False
     operational_instructions: list[str] = Field(default_factory=list)
     central_contact: PublicContact
     notices: list[PublicNotice] = Field(default_factory=list)

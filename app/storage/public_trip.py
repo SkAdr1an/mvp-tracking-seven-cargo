@@ -225,8 +225,9 @@ class PublicTripRepository:
             return []
         with self.operations.connect() as connection:
             rows = connection.execute(
-                """SELECT public_title,public_description,description,severity,updated_at,
-                          affected_vehicles_json
+                """SELECT id,category,public_title,public_description,description,severity,
+                          source,road_name,direction,latitude,longitude,delay_seconds,
+                          updated_at,expires_at,status,affected_vehicles_json
                    FROM traffic_incidents
                    WHERE route_id=? AND publicly_visible=1
                      AND status IN ('ACTIVE','CONFIRMED') AND expires_at>?
@@ -245,6 +246,69 @@ class PublicTripRepository:
             ):
                 continue
             result.append(dict(row) | {"affected_vehicles_json": None})
+        return result
+
+    def alert_schema_available(self) -> bool:
+        with self.operations.connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='portal_alert_presentations'"
+            ).fetchone() is not None
+
+    def register_alerts(
+        self, link_id: str, alerts: list[dict[str, Any]], seen_at: str
+    ) -> list[dict[str, Any]]:
+        if not self.alert_schema_available():
+            return [item | {"presentation": "ACTIVE"} for item in alerts]
+        active_keys = {item["id"] for item in alerts}
+        result = []
+        with self.operations._lock, self.operations.connect() as connection:
+            existing = {
+                row["alert_key"]: row for row in connection.execute(
+                    "SELECT * FROM portal_alert_presentations WHERE public_link_id=?",
+                    (link_id,),
+                ).fetchall()
+            }
+            for alert in alerts:
+                previous = existing.get(alert["id"])
+                if previous is None:
+                    presentation = "NEW"
+                elif previous["severity"] != alert["severity"]:
+                    presentation = "UPDATED"
+                elif previous["distance_band"] != alert["distance_band"]:
+                    presentation = "REINFORCED"
+                else:
+                    presentation = "ACTIVE"
+                if previous is None:
+                    connection.execute(
+                        """INSERT INTO portal_alert_presentations(
+                           public_link_id,alert_key,distance_band,severity,first_presented_at,
+                           last_presented_at,last_seen_at,presentation_count,active)
+                           VALUES(?,?,?,?,?,?,?,1,1)""",
+                        (link_id, alert["id"], alert["distance_band"], alert["severity"],
+                         seen_at, seen_at, seen_at),
+                    )
+                elif presentation == "ACTIVE":
+                    connection.execute(
+                        "UPDATE portal_alert_presentations SET last_seen_at=?,active=1 "
+                        "WHERE public_link_id=? AND alert_key=?",
+                        (seen_at, link_id, alert["id"]),
+                    )
+                else:
+                    connection.execute(
+                        """UPDATE portal_alert_presentations SET distance_band=?,severity=?,
+                           last_presented_at=?,last_seen_at=?,presentation_count=presentation_count+1,
+                           active=1 WHERE public_link_id=? AND alert_key=?""",
+                        (alert["distance_band"], alert["severity"], seen_at, seen_at,
+                         link_id, alert["id"]),
+                    )
+                result.append(alert | {"presentation": presentation})
+            for key, previous in existing.items():
+                if previous["active"] and key not in active_keys:
+                    connection.execute(
+                        "UPDATE portal_alert_presentations SET active=0,last_seen_at=? "
+                        "WHERE public_link_id=? AND alert_key=?",
+                        (seen_at, link_id, key),
+                    )
         return result
 
     @staticmethod

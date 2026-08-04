@@ -8,9 +8,12 @@ import type { PublicTripFailureReason } from './errors'
 import type { PublicTrip } from './types'
 import { buildCentralWhatsAppUrl, locationAgeLabel } from './portalUtils'
 import { MobileLocationSharing } from './MobileLocationSharing'
+import { PortalAlerts } from './PortalAlerts'
+import { usePortalAlerts } from './hooks/usePortalAlerts'
 
 export function PublicTripApp({ token }: { token: string }) {
   const state = usePublicTrip(token)
+  const portalAlerts = usePortalAlerts(token, state.record?.data.portal_alerts_enabled ?? false)
   if (state.invalid) return <InvalidPublicTrip reason={state.terminalReason} />
   if (state.loading && !state.record) return <PublicShell><div className="public-state"><RefreshCw className="spin" /><h1>Carregando sua viagem</h1><p>Buscando as informações mais recentes.</p></div></PublicShell>
   if (!state.record) {
@@ -86,7 +89,7 @@ export function PublicTripApp({ token }: { token: string }) {
         <div className="public-source-result"><span>Resultado</span><strong>{sourceSituation(trip.location_sources?.situation)}</strong>{trip.location_sources?.difference_km != null && <small>Diferença aproximada: {trip.location_sources.difference_km.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km</small>}</div>
       </section>
 
-      <PublicTripMap key={token} trip={trip} />
+      <PublicTripMap key={token} trip={trip} alerts={portalAlerts.data?.alerts} />
 
       {trip.route.important_points.length > 0 && <InfoSection icon={<MapPin />} title="Pontos importantes">
         {trip.route.important_points.map((point) => <p key={point.name}>{point.name}</p>)}
@@ -94,11 +97,9 @@ export function PublicTripApp({ token }: { token: string }) {
       {trip.operational_instructions.length > 0 && <InfoSection icon={<ShieldCheck />} title="Instruções operacionais">
         {trip.operational_instructions.map((instruction) => <p key={instruction}>{instruction}</p>)}
       </InfoSection>}
-      <InfoSection icon={<AlertTriangle />} title="Próximos alertas" warning>
-        {trip.notices.length > 0
-          ? trip.notices.map((notice) => <article key={`${notice.title}-${notice.updated_at}`}><strong>{notice.title}</strong><p>{notice.description}</p><small>Atualizado em {formatDateTime(notice.updated_at)}</small></article>)
-          : <p>Nenhum alerta confirmado à frente neste momento.</p>}
-      </InfoSection>
+      {trip.portal_alerts_enabled
+        ? <PortalAlerts data={portalAlerts.data} degraded={portalAlerts.degraded} />
+        : <InfoSection icon={<AlertTriangle />} title="Próximos alertas" warning><p>Nenhum alerta confirmado à frente neste momento.</p></InfoSection>}
 
       <MobileLocationSharing token={token} enabled={trip.mobile_location_enabled} />
 

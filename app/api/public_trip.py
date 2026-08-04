@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.security import require_internal_api_key
 from app.schemas.public_trip import (
+    DriverPortalAlertsResponse,
     MobilePositionAccepted,
     MobilePositionRequest,
     PublicLinkCreateRequest,
@@ -172,6 +173,23 @@ async def submit_mobile_position(
             content={"detail": detail, "reason": exc.reason},
             headers=headers,
         )
+
+
+@router.get("/public/trips/{token}/alerts", response_model=DriverPortalAlertsResponse)
+async def get_driver_portal_alerts(
+    token: str,
+    request: Request,
+    service: PublicTripService = Depends(get_public_trip_service),
+) -> DriverPortalAlertsResponse | JSONResponse:
+    _redact_public_token(request)
+    if not _valid_public_token(token):
+        return _public_error("invalid_token")
+    try:
+        from app.services.portal_alerts import PortalAlertService
+
+        return DriverPortalAlertsResponse.model_validate(PortalAlertService(service).alerts(token))
+    except PublicTripUnavailable as exc:
+        return _public_error(exc.reason)
 
 
 def _record_access_safely(service: PublicTripService, link_id: str) -> None:

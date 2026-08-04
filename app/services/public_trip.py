@@ -314,6 +314,7 @@ class PublicTripService:
             "mobile_location_enabled": bool(
                 settings.driver_mobile_location_enabled and self.repository.mobile_schema_available()
             ),
+            "portal_alerts_enabled": bool(settings.driver_portal_alerts_enabled),
             "operational_instructions": instructions,
             "central_contact": {
                 "name": settings.public_trip_contact_name,

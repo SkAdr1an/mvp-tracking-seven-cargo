@@ -1,7 +1,7 @@
 import { CircleMarker, MapContainer, Polyline, Popup, TileLayer } from 'react-leaflet'
-import type { PublicTrip } from './types'
+import type { PortalAlert, PublicTrip } from './types'
 
-export function PublicTripMap({ trip }: { trip: PublicTrip }) {
+export function PublicTripMap({ trip, alerts = [] }: { trip: PublicTrip; alerts?: PortalAlert[] }) {
   const origin = trip.route.origin.coordinate
   const destination = trip.route.destination.coordinate
   const position = trip.latest_position
@@ -32,6 +32,7 @@ export function PublicTripMap({ trip }: { trip: PublicTrip }) {
       {destination && <CircleMarker center={[destination.latitude, destination.longitude]} radius={8} pathOptions={{ color: '#fff', fillColor: '#858585', fillOpacity: 1 }}><Popup><strong>Destino</strong><br/>CD de destino — {trip.route.destination.name}<br/>{placeLocation(trip.route.destination)}</Popup></CircleMarker>}
       {position && <CircleMarker center={[position.latitude, position.longitude]} radius={10} pathOptions={{ color: '#fff', fillColor: '#111', fillOpacity: 1, weight: 3 }}><Popup>Posição atual do veículo</Popup></CircleMarker>}
       {mobilePosition && <CircleMarker center={[mobilePosition.latitude, mobilePosition.longitude]} radius={8} pathOptions={{ color: '#f3c623', fillColor: '#176b9c', fillOpacity: 1, weight: 3 }}><Popup>Posição complementar do celular<br/>Precisão: {mobilePosition.accuracy_m != null ? `${Math.round(mobilePosition.accuracy_m)} m` : 'indisponível'}</Popup></CircleMarker>}
+      {alerts.filter((alert) => alert.latitude != null && alert.longitude != null).map((alert) => <CircleMarker key={alert.id} center={[alert.latitude!, alert.longitude!]} radius={7} pathOptions={{ color: '#fff', fillColor: alert.severity === 'CRITICO' ? '#b42318' : '#e4a300', fillOpacity: 1, weight: 2 }}><Popup><strong>{alert.type}</strong><br/>{alert.description}<br/>{alert.distance_km != null ? `Aproximadamente ${alert.distance_km} km à frente` : 'Distância indisponível'}<br/>{alert.source}</Popup></CircleMarker>)}
       {trip.route.important_points.map((point) => <CircleMarker key={`${point.name}-${point.coordinate.latitude}-${point.coordinate.longitude}`} center={[point.coordinate.latitude, point.coordinate.longitude]} radius={6} pathOptions={{ color: '#f3c623', fillColor: '#444', fillOpacity: 1 }}><Popup>{point.name}</Popup></CircleMarker>)}
     </MapContainer>
     {!navigator.onLine && <p className="public-map-offline">O mapa-base pode ficar indisponível sem internet. A rota salva continua indicada.</p>}

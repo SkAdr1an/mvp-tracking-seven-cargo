@@ -195,6 +195,21 @@ podem suspender o GPS com tela bloqueada ou navegador minimizado.
 
 No ambiente entregue, a flag continua `false`; nenhuma ativação geral foi feita.
 
+### Alertas visuais do portal
+
+Os alertas também ficam desativados por padrão com
+`DRIVER_PORTAL_ALERTS_ENABLED=false`. Quando habilitados futuramente para
+homologação, reutilizam apenas ocorrências de trânsito persistidas, previsão
+climática já presente no cache da frota, desvios confirmados e a geometria
+operacional. O endpoint público não chama APIs externas.
+
+As faixas iniciais são configuráveis por `DRIVER_ALERT_*`: trânsito lento
+10/3 km, acidente ou bloqueio 20/5 km, chuva leve 10/2 km, chuva forte 30/10 km
+e origem/destino 5/1 km. Eventos atrás, fora do corredor, antigos ou encerrados
+são descartados. A apresentação inicial, o reforço e a mudança de gravidade são
+registrados sem marcar o alerta como lido. Não há push, áudio automático ou
+postos homologados nesta fase.
+
 ### Forma recomendada no Windows
 
 Use o gerenciador na raiz do projeto. No primeiro uso ele prepara as
