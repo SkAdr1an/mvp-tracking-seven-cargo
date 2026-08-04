@@ -203,6 +203,8 @@ class PublicTripService:
         )
         position = None
         if trip.get("last_latitude") is not None and trip.get("last_longitude") is not None:
+            history = self.operations.position_history(trip_key, 1)
+            latest_source = history[-1].get("source") if history else None
             position = {
                 "latitude": trip["last_latitude"],
                 "longitude": trip["last_longitude"],
@@ -210,6 +212,7 @@ class PublicTripService:
                 "recorded_at": _optional_datetime(
                     trip.get("last_position_at"), "last_position_at", trip_key
                 ) or updated,
+                "source": self._public_position_source(latest_source),
             }
         settings = get_settings()
         instructions = [
@@ -266,6 +269,15 @@ class PublicTripService:
                 if item.get("description") and item.get("severity") and item.get("updated_at")
             ],
         }
+
+    @staticmethod
+    def _public_position_source(source: Any) -> str:
+        normalized = str(source or "").strip().upper()
+        if normalized == "LINK_MOTORISTA":
+            return "Celular do motorista"
+        if normalized:
+            return "Rastreador do veículo"
+        return "Fonte não informada"
 
     def _geometry(self, route_id: str | None) -> tuple[list[dict[str, float]], list[dict[str, Any]]]:
         if not route_id:

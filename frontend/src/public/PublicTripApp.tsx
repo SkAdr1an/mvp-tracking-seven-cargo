@@ -1,11 +1,12 @@
 import {
-  AlertTriangle, ArrowRight, CalendarClock, Clock3, MapPin, Navigation, Phone, RefreshCw,
-  ShieldCheck, Truck, UserRound, Wifi, WifiOff,
+  AlertTriangle, ArrowRight, CalendarClock, Clock3, MapPin, MessageCircle, Navigation, RefreshCw,
+  Satellite, ShieldCheck, Smartphone, Truck, UserRound, Wifi, WifiOff,
 } from 'lucide-react'
 import { PublicTripMap } from './PublicTripMap'
 import { usePublicTrip } from './hooks/usePublicTrip'
 import type { PublicTripFailureReason } from './errors'
 import type { PublicTrip } from './types'
+import { buildCentralWhatsAppUrl, locationAgeLabel } from './portalUtils'
 
 export function PublicTripApp({ token }: { token: string }) {
   const state = usePublicTrip(token)
@@ -54,6 +55,7 @@ export function PublicTripApp({ token }: { token: string }) {
       </section>
 
       <section className="public-summary-grid">
+        <Summary icon={<Navigation />} label="Situação atual" value={trip.public_status} />
         <Summary
           icon={<Clock3 />}
           label="Previsão de chegada"
@@ -68,6 +70,15 @@ export function PublicTripApp({ token }: { token: string }) {
 
       {trip.stale && <div className="public-stale"><AlertTriangle /><div><strong>Localização desatualizada</strong><span>A última posição pode não representar o local atual do veículo.</span></div></div>}
 
+      <section className="public-card public-location-status" aria-labelledby="location-status-title">
+        <header><Satellite /><div><span>Última localização recebida</span><h2 id="location-status-title">{trip.latest_position ? 'Disponível no mapa' : 'Localização indisponível'}</h2></div></header>
+        <div className="public-location-details">
+          <div><span>Fonte</span><strong>{trip.latest_position?.source || 'Não informada'}</strong></div>
+          <div><span>Horário</span><strong>{formatDateTime(trip.latest_position?.recorded_at || trip.last_updated_at)}</strong></div>
+          <div><span>Idade da posição</span><strong className={trip.stale ? 'is-stale' : ''}>{locationAgeLabel(trip.latest_position?.recorded_at || trip.last_updated_at)}</strong></div>
+        </div>
+      </section>
+
       <PublicTripMap key={token} trip={trip} />
 
       {trip.route.important_points.length > 0 && <InfoSection icon={<MapPin />} title="Pontos importantes">
@@ -76,15 +87,21 @@ export function PublicTripApp({ token }: { token: string }) {
       {trip.operational_instructions.length > 0 && <InfoSection icon={<ShieldCheck />} title="Instruções operacionais">
         {trip.operational_instructions.map((instruction) => <p key={instruction}>{instruction}</p>)}
       </InfoSection>}
-      {trip.notices.length > 0 && <InfoSection icon={<AlertTriangle />} title="Avisos da rota" warning>
-        {trip.notices.map((notice) => <article key={`${notice.title}-${notice.updated_at}`}><strong>{notice.title}</strong><p>{notice.description}</p></article>)}
-      </InfoSection>}
+      <InfoSection icon={<AlertTriangle />} title="Próximos alertas" warning>
+        {trip.notices.length > 0
+          ? trip.notices.map((notice) => <article key={`${notice.title}-${notice.updated_at}`}><strong>{notice.title}</strong><p>{notice.description}</p><small>Atualizado em {formatDateTime(notice.updated_at)}</small></article>)
+          : <p>Nenhum alerta confirmado à frente neste momento.</p>}
+      </InfoSection>
+
+      <section className="public-card public-sharing" aria-labelledby="sharing-title">
+        <Smartphone />
+        <div><span>Compartilhamento pelo celular</span><h2 id="sharing-title">Não iniciado</h2><p>O envio voluntário de localização será disponibilizado somente após seu consentimento. A página deverá permanecer aberta durante o compartilhamento.</p></div>
+        <span className="public-sharing-badge">Inativo</span>
+      </section>
 
       <section className="public-card public-contact">
-        <div><Phone /><div><span>Precisa de ajuda?</span><strong>{trip.central_contact.name}</strong></div></div>
-        {trip.central_contact.phone
-          ? <a href={`tel:${sanitizePhone(trip.central_contact.phone)}`}><Phone /> Ligar para a Central</a>
-          : <p>Use o contato informado pela operação.</p>}
+        <div><MessageCircle /><div><span>Precisa de ajuda?</span><strong>{trip.central_contact.name}</strong></div></div>
+        <a href={buildCentralWhatsAppUrl()} target="_blank" rel="noopener noreferrer"><MessageCircle /> WhatsApp Central</a>
       </section>
 
       <footer className="public-footer">
@@ -142,8 +159,4 @@ function formatDateTime(value?: string | null): string {
 
 function firstName(name: string): string {
   return name.split(/\s+/)[0] || 'motorista'
-}
-
-function sanitizePhone(phone: string): string {
-  return phone.replace(/[^\d+]/g, '')
 }

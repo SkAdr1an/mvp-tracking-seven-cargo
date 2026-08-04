@@ -43,6 +43,7 @@ class PublicPlace(BaseModel):
 class PublicPosition(PublicCoordinate):
     recorded_at: datetime
     speed_kmh: float | None = Field(default=None, ge=0)
+    source: str = "Rastreador do veículo"
 
 
 class PublicVehicle(BaseModel):

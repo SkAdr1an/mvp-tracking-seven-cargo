@@ -20,7 +20,7 @@ export interface PublicTrip {
   stale: boolean
   finished: boolean
   vehicle: { plate: string; trailer_plate?: string | null }
-  latest_position?: (PublicCoordinate & { recorded_at: string; speed_kmh?: number | null }) | null
+  latest_position?: (PublicCoordinate & { recorded_at: string; speed_kmh?: number | null; source: string }) | null
   operational_instructions: string[]
   central_contact: { name: string; phone?: string | null }
   notices: Array<{ title: string; description: string; severity: string; updated_at: string }>
