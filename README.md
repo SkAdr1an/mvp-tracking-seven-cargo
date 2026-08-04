@@ -139,6 +139,12 @@ Endpoints operacionais:
 
 - `GET /operations/routes`
 - `GET /operations/trips/{trip_key}`
+- `GET|PUT /operations/trips/{trip_key}/plan`
+- `GET /operations/trips/{trip_key}/eta-history`
+- `GET /operations/trips/{trip_key}/report-data`
+- `POST /operations/trips/{trip_key}/report`
+- `GET /operations/exceptions`
+- `POST /operations/stops/{stop_id}/justification`
 - `POST /operations/trips/{trip_key}/route`
 - `POST /operations/trips/{trip_key}/actions`
 - `GET /traffic/incidents?route_id=...&bbox=minLon,minLat,maxLon,maxLat`
@@ -162,6 +168,16 @@ O endpoint de ações aceita `finalize`, `reopen`, `undo_detection` e
 `correct_times`. Horários são armazenados em UTC e o dashboard os apresenta em
 `America/Sao_Paulo`.
 
+Paradas observadas e lacunas de comunicação ficam separadas: uma lacuna nunca é
+convertida em parada presumida. O relatório final preserva plano, histórico de
+ETA, eventos, posições e justificativas em HTML legível e JSON de evidência. Ele
+é gerado automaticamente quando a viagem é finalizada e também pode ser
+regenerado pelo endpoint autenticado.
+
+O banco recebe backup SQLite consistente em segundo plano, com validação de
+integridade, hash SHA-256, manifesto e retenção diária/semanal/mensal. O arquivo
+original é aberto somente para leitura durante a cópia.
+
 ## Execução
 
 ### Forma recomendada no Windows
@@ -180,6 +196,7 @@ Comandos disponíveis:
 .\project.cmd restart  # reinicia os dois serviços
 .\project.cmd stop     # encerra os dois serviços
 .\project.cmd setup    # instala/atualiza dependências
+.\project.cmd backup   # cria, valida e aplica retenção ao backup do banco
 ```
 
 O comando `start` testa a conexão HTTPS do Trafegus e valida uma consulta real

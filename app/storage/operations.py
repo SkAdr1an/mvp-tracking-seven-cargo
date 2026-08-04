@@ -197,7 +197,24 @@ CREATE TABLE IF NOT EXISTS operational_diagnostics (
  factors_json TEXT NOT NULL DEFAULT '[]', confidence_reasons_json TEXT NOT NULL DEFAULT '[]',
  risks_json TEXT NOT NULL DEFAULT '[]', recommendations_json TEXT NOT NULL DEFAULT '[]',
  scenarios_json TEXT NOT NULL DEFAULT '{}', status_explanation TEXT NOT NULL,
- last_reliable_json TEXT, calculated_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+    last_reliable_json TEXT, calculated_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS trip_plans (
+ trip_key TEXT PRIMARY KEY REFERENCES operational_trips(trip_key),
+ scheduled_start_at TEXT, scheduled_arrival_at TEXT, customer_commitment_at TEXT,
+ planned_loading_minutes REAL NOT NULL DEFAULT 0,
+ planned_stops_minutes REAL NOT NULL DEFAULT 0,
+ operational_buffer_minutes REAL NOT NULL DEFAULT 0,
+ source TEXT NOT NULL, notes TEXT, updated_by TEXT NOT NULL,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS eta_history (
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ trip_key TEXT NOT NULL REFERENCES operational_trips(trip_key),
+ eta_at TEXT, client_eta_at TEXT, commitment_delta_minutes REAL,
+ classification TEXT, trend TEXT, confidence TEXT,
+ remaining_minutes REAL, source TEXT NOT NULL, method_version TEXT,
+ evidence_json TEXT NOT NULL DEFAULT '{}', recorded_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_eta_history_trip_time
+ON eta_history(trip_key, recorded_at);
 """
 
 
@@ -574,7 +591,79 @@ class OperationsRepository:
                 f"ON CONFLICT(trip_key) DO UPDATE SET {updates}",
                 tuple(data.get(column) for column in columns),
             )
+            latest = connection.execute(
+                "SELECT eta_at,client_eta_at,commitment_delta_minutes,classification,trend,confidence "
+                "FROM eta_history WHERE trip_key=? ORDER BY id DESC LIMIT 1",
+                (value["trip_key"],),
+            ).fetchone()
+            signature = (
+                data.get("eta_at"), data.get("client_eta_at"),
+                data.get("commitment_delta_minutes"), data.get("classification"),
+                data.get("trend"), data.get("confidence"),
+            )
+            if latest is None or tuple(latest) != signature:
+                connection.execute(
+                    """INSERT INTO eta_history(
+                       trip_key,eta_at,client_eta_at,commitment_delta_minutes,
+                       classification,trend,confidence,remaining_minutes,source,
+                       method_version,evidence_json,recorded_at)
+                       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    (
+                        value["trip_key"], data.get("eta_at"), data.get("client_eta_at"),
+                        data.get("commitment_delta_minutes"), data.get("classification"),
+                        data.get("trend"), data.get("confidence"), data.get("remaining_minutes"),
+                        "SEVEN_DIAGNOSTIC", data.get("method_version"),
+                        json.dumps({"factors": value.get("factors") or []}, ensure_ascii=False),
+                        data.get("calculated_at") or utc_now(),
+                    ),
+                )
         return self.diagnostic(value["trip_key"]) or value
+
+    def save_plan(self, trip_key: str, value: dict[str, Any], operator: str) -> dict[str, Any]:
+        if not self.trip(trip_key):
+            raise KeyError(trip_key)
+        now = utc_now()
+        columns = (
+            "trip_key", "scheduled_start_at", "scheduled_arrival_at",
+            "customer_commitment_at", "planned_loading_minutes",
+            "planned_stops_minutes", "operational_buffer_minutes", "source",
+            "notes", "updated_by", "created_at", "updated_at",
+        )
+        data = {
+            **value, "trip_key": trip_key, "updated_by": operator,
+            "created_at": now, "updated_at": now,
+        }
+        with self._lock, self.connect() as connection:
+            connection.execute(
+                f"INSERT INTO trip_plans({','.join(columns)}) VALUES({','.join('?' for _ in columns)}) "
+                "ON CONFLICT(trip_key) DO UPDATE SET "
+                + ",".join(
+                    f"{column}=excluded.{column}"
+                    for column in columns if column not in {"trip_key", "created_at"}
+                ),
+                tuple(data.get(column) for column in columns),
+            )
+        return self.plan(trip_key) or data
+
+    def plan(self, trip_key: str) -> dict[str, Any] | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM trip_plans WHERE trip_key=?", (trip_key,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def eta_history(self, trip_key: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                "SELECT * FROM eta_history WHERE trip_key=? ORDER BY recorded_at DESC LIMIT ?",
+                (trip_key, limit),
+            ).fetchall()
+        values = []
+        for row in rows:
+            value = dict(row)
+            value["evidence"] = json.loads(value.pop("evidence_json") or "{}")
+            values.append(value)
+        return values
 
     @staticmethod
     def _route(row: sqlite3.Row) -> dict[str, Any]:

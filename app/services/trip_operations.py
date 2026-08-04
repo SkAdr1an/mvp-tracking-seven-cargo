@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import logging
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -11,6 +12,9 @@ from typing import Any
 from app.core.config import get_settings
 from app.services.public_trip import is_final_trip_state, revoke_links_for_finished_trip
 from app.storage.operations import OperationsRepository
+
+
+logger = logging.getLogger(__name__)
 
 
 TRIP_STATES = {
@@ -264,6 +268,7 @@ class TripOperationsService:
         recognition = self.recognize_route(update.route_description, update.route_id)
         route = recognition["route"]
         trip = self.repository.ensure_trip(key, update.plate, update.trip_id, route["id"] if route else None)
+        initial_state = trip.get("state")
         if not (-90 <= update.latitude <= 90 and -180 <= update.longitude <= 180):
             return {
                 "accepted": False,
@@ -402,8 +407,12 @@ class TripOperationsService:
                 fields["destination_exit_count"] = 0
 
         result = self.repository.update_trip(key, **fields)
+        from app.services.journey_observation import get_journey_observation_service
+        get_journey_observation_service(self.repository).observe(key)
         if is_final_trip_state(result.get("state")):
             revoke_links_for_finished_trip(self.repository, key)
+            if not is_final_trip_state(initial_state):
+                self._generate_automatic_report(key)
         return_trip = None
         deviation = None
         if result["state"] == "FINALIZADA_NO_SISTEMA":
@@ -465,7 +474,20 @@ class TripOperationsService:
             justification=justification.strip(), operator=operator.strip() or "operator",
             idempotency_key=f"manual:{trip_key}:{action}:{now}",
         )
+        if is_final_trip_state(updated.get("state")) and not is_final_trip_state(previous):
+            self._generate_automatic_report(trip_key)
         return self.repository.trip(trip_key) or updated
+
+    def _generate_automatic_report(self, trip_key: str) -> None:
+        """Persist the final evidence package without jeopardizing trip processing."""
+        try:
+            from app.services.trip_report import TripReportService
+
+            TripReportService(
+                self.repository, get_settings().automatic_reports_directory
+            ).generate(trip_key)
+        except Exception:
+            logger.exception("Automatic report generation failed for trip %s", trip_key)
 
     def detail(self, trip_key: str) -> dict[str, Any] | None:
         trip = self.repository.trip(trip_key)
@@ -475,6 +497,12 @@ class TripOperationsService:
         trip["events"] = self.repository.events(trip_key)
         trip["geofences"] = self._geofence_status(trip)
         trip["diagnostic"] = self.repository.diagnostic(trip_key)
+        trip["plan"] = self.repository.plan(trip_key)
+        trip["eta_history"] = self.repository.eta_history(trip_key, 50)
+        from app.services.journey_observation import get_journey_observation_service
+        observation = get_journey_observation_service(self.repository)
+        trip["stops"] = observation.stops(trip_key)
+        trip["communication_gaps"] = observation.gaps(trip_key)
         candidate = self.repository.return_candidate(trip_key)
         if not candidate:
             with self.repository.connect() as connection:

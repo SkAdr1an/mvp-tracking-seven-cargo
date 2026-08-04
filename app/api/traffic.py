@@ -3,11 +3,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, model_validator
 
 from app.services.traffic_monitoring import ROUTE_GEOMETRIES, traffic_monitoring_service, traffic_repository
 from app.services.route_deviation import route_deviation_service
+from app.core.security import require_panel_session
 
 
 router=APIRouter(prefix="/traffic",tags=["traffic"])
@@ -92,18 +93,27 @@ async def affected_vehicles(incident_id: str):
 
 
 @router.post("/manual",status_code=201)
-async def create_manual(payload: ManualIncidentRequest):
+async def create_manual(
+    payload: ManualIncidentRequest,
+    operator: str = Depends(require_panel_session),
+):
     if not traffic_monitoring_service.repository.operations.route(payload.route_id): raise HTTPException(404,"Rota não encontrada")
-    return traffic_monitoring_service.create_manual(payload.model_dump())
+    values = payload.model_dump()
+    values["responsible_user"] = operator
+    return traffic_monitoring_service.create_manual(values)
 
 
 @router.patch("/manual/{incident_id}")
-async def update_manual(incident_id: str,payload: ManualUpdateRequest):
+async def update_manual(
+    incident_id: str,
+    payload: ManualUpdateRequest,
+    operator: str = Depends(require_panel_session),
+):
     changes=dict(payload.changes)
     if payload.action=="CONFIRMED": changes["status"]="CONFIRMED"
     elif payload.action=="CLOSED": changes["status"]="CLOSED"
     elif payload.action=="DISCARDED": changes["status"]="DISCARDED"
-    try: return traffic_repository.update_manual(incident_id,changes,payload.action,payload.user,payload.justification)
+    try: return traffic_repository.update_manual(incident_id,changes,payload.action,operator,payload.justification)
     except KeyError as exc: raise HTTPException(404,"Ocorrência não encontrada") from exc
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
 

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.services.route_deviation import route_deviation_service
 from app.services.trip_operations import trip_operations_service
 from app.storage.operations import utc_now
+from app.core.security import require_panel_session
 
 router = APIRouter(tags=["route-monitoring"])
 
@@ -81,25 +82,37 @@ async def deviation_history(trip_key: str):
 
 
 @router.post("/deviations/{deviation_id}/acknowledge")
-async def acknowledge(deviation_id: int, payload: AcknowledgeRequest):
+async def acknowledge(
+    deviation_id: int,
+    payload: AcknowledgeRequest,
+    operator: str = Depends(require_panel_session),
+):
     try:
-        return route_deviation_service.acknowledge(deviation_id, payload.user, payload.reason, payload.justification)
+        return route_deviation_service.acknowledge(deviation_id, operator, payload.reason, payload.justification)
     except KeyError as exc:
         raise HTTPException(404, "Desvio não encontrado") from exc
 
 
 @router.post("/deviations/{deviation_id}/close")
-async def close(deviation_id: int, payload: CloseRequest):
+async def close(
+    deviation_id: int,
+    payload: CloseRequest,
+    operator: str = Depends(require_panel_session),
+):
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")
     try:
-        return route_deviation_service.close(deviation_id, payload.user, payload.justification)
+        return route_deviation_service.close(deviation_id, operator, payload.justification)
     except KeyError as exc:
         raise HTTPException(404, "Desvio não encontrado") from exc
 
 
 @router.post("/operations/trips/{trip_key}/driver-association")
-async def change_driver_association(trip_key: str, payload: DriverAssociationRequest):
+async def change_driver_association(
+    trip_key: str,
+    payload: DriverAssociationRequest,
+    operator: str = Depends(require_panel_session),
+):
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")
     trip = trip_operations_service.repository.trip(trip_key)
@@ -117,6 +130,6 @@ async def change_driver_association(trip_key: str, payload: DriverAssociationReq
         trip_key, "DRIVER_ASSOCIATION_CORRECTED" if current else "DRIVER_ASSOCIATION_REMOVED",
         utc_now(), "operator", "Associação de motorista alterada com confirmação explícita",
         metadata={"previous_driver": previous, "current_driver": current},
-        justification=payload.justification, operator=payload.operator,
+        justification=payload.justification, operator=operator,
     )
     return updated

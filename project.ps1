@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("start", "stop", "restart", "status", "setup")]
+    [ValidateSet("start", "stop", "restart", "status", "setup", "backup")]
     [string]$Action = "start"
 )
 
@@ -42,8 +42,12 @@ function Get-ProjectPython {
     )
     foreach ($candidate in $candidates) {
         if (-not (Test-Path $candidate)) { continue }
-        & $candidate -c "import fastapi, httpx, uvicorn" 2>$null
-        if ($LASTEXITCODE -eq 0) { return $candidate }
+        try {
+            & $candidate -c "import fastapi, httpx, uvicorn" 2>$null
+            if ($LASTEXITCODE -eq 0) { return $candidate }
+        } catch {
+            continue
+        }
     }
     return $null
 }
@@ -162,6 +166,12 @@ try {
         "stop" { Stop-Project }
         "restart" { Stop-Project; Start-Sleep -Seconds 1; Start-Project }
         "status" { Show-Status }
+        "backup" {
+            $python = Get-ProjectPython
+            if (-not $python) { throw "Ambiente Python não disponível. Execute 'project.cmd setup'." }
+            & $python -m app.scripts.backup_operations --label manual
+            if ($LASTEXITCODE -ne 0) { throw "Falha ao criar o backup operacional." }
+        }
     }
 } catch {
     Write-Host "`nERRO: $($_.Exception.Message)" -ForegroundColor Red

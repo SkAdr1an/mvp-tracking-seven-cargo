@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hmac
 import re
 from typing import Any
 
@@ -36,7 +37,7 @@ class DriverLocation(BaseModel):
 
 def _authorized(token: str | None) -> bool:
     configured_token = get_settings().tracking_api_key
-    return not configured_token or token == configured_token
+    return bool(configured_token and token and hmac.compare_digest(token, configured_token))
 
 
 def _require_http_token(authorization: str | None = Header(default=None)) -> None:

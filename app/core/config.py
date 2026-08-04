@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     traffic_query_spacing_km: float = 60
     traffic_max_incident_calls_per_cycle: int = 12
     traffic_incident_default_ttl_minutes: int = 30
+    operations_backup_enabled: bool = True
+    operations_backup_interval_hours: int = 24
+    operations_backup_initial_delay_seconds: int = 120
+    operations_backup_daily_retention: int = 7
+    operations_backup_weekly_retention: int = 4
+    operations_backup_monthly_retention: int = 6
+    automatic_reports_directory: Path = PROJECT_ROOT / "data" / "reports" / "automatic"
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -72,6 +79,12 @@ class Settings(BaseSettings):
     @field_validator("operations_database_path", mode="before")
     @classmethod
     def absolute_operations_database_path(cls, value: str | Path) -> Path:
+        path = Path(value)
+        return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
+
+    @field_validator("automatic_reports_directory", mode="before")
+    @classmethod
+    def absolute_reports_path(cls, value: str | Path) -> Path:
         path = Path(value)
         return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
 

@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 _collector_task: asyncio.Task[None] | None = None
 _traffic_collector_task: asyncio.Task[None] | None = None
 _route_geometry_task: asyncio.Task[None] | None = None
+_backup_task: asyncio.Task[None] | None = None
 
 
 async def _route_geometry_bootstrap() -> None:
@@ -67,9 +68,31 @@ async def _traffic_collector() -> None:
         await asyncio.sleep(max(settings.traffic_collector_interval_seconds,120))
 
 
+async def _database_backup_collector() -> None:
+    settings = get_settings()
+    await asyncio.sleep(max(settings.operations_backup_initial_delay_seconds, 10))
+    while True:
+        try:
+            from app.services.database_backup import DatabaseBackupService
+            service = DatabaseBackupService(
+                settings.operations_database_path,
+                settings.operations_database_path.parent / "backups",
+            )
+            await asyncio.to_thread(service.create, label="automatic")
+            await asyncio.to_thread(
+                service.enforce_retention,
+                daily=settings.operations_backup_daily_retention,
+                weekly=settings.operations_backup_weekly_retention,
+                monthly=settings.operations_backup_monthly_retention,
+            )
+        except Exception as exc:
+            logger.exception("Backup automático indisponível: %s", type(exc).__name__)
+        await asyncio.sleep(max(settings.operations_backup_interval_hours, 1) * 3600)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global _collector_task, _traffic_collector_task, _route_geometry_task
+    global _collector_task, _traffic_collector_task, _route_geometry_task, _backup_task
     settings = get_settings()
     settings.validate_public_trip_runtime()
     if settings.development:
@@ -82,6 +105,8 @@ async def lifespan(_: FastAPI):
         _collector_task = asyncio.create_task(_fleet_collector())
     if settings.traffic_collector_enabled:
         _traffic_collector_task=asyncio.create_task(_traffic_collector())
+    if settings.operations_backup_enabled:
+        _backup_task = asyncio.create_task(_database_backup_collector())
     yield
     if _collector_task:
         _collector_task.cancel()
@@ -96,6 +121,11 @@ async def lifespan(_: FastAPI):
         _route_geometry_task.cancel()
         with suppress(asyncio.CancelledError): await _route_geometry_task
         _route_geometry_task = None
+    if _backup_task:
+        _backup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _backup_task
+        _backup_task = None
 
 app = FastAPI(title="7Seven Cargo MVP Tracking", version="0.2.0", lifespan=lifespan)
 

@@ -70,13 +70,13 @@ export const api = {
       method: 'POST', body: JSON.stringify(input),
     }) as Promise<OperationalTrip>,
   returnDecision: (candidateId: number, input: { decision: 'YES' | 'NO' | 'LATER'; operator?: string; justification?: string }) =>
-    request<OperationalTrip>(`/operations/return-candidates/${candidateId}/decision`, {
+    panelRequest<OperationalTrip>(`/operations/return-candidates/${candidateId}/decision`, {
       method: 'POST', body: JSON.stringify(input),
-    }),
+    }) as Promise<OperationalTrip>,
   trafficIncidents: () => request<TrafficSnapshot>('/traffic/incidents'),
   routePaths: () => request<RoutePaths>('/routes/paths'),
   operationalSites: () => request<OperationalSitesResponse>('/operational-sites'),
-  createManualIncident: (input: Record<string, unknown>) => request('/traffic/manual', { method: 'POST', body: JSON.stringify(input) }),
+  createManualIncident: (input: Record<string, unknown>) => panelRequest('/traffic/manual', { method: 'POST', body: JSON.stringify(input) }),
   angelLiraStations: () => request<AngelLiraStationsResponse>('/angellira/stations?status=validated'),
   angelLiraAdmin: () => request<AngelLiraAdminResponse>('/angellira/admin'),
   panelSession: () => panelRequest<PanelSession>('/api/auth/session') as Promise<PanelSession>,

@@ -80,6 +80,10 @@ class FleetTrackingService:
                 operational_site_service.recognize_trips(trips)
                 await self._enrich_trips(trips)
                 snapshot = self._build_snapshot(trips)
+                from app.services.journey_observation import get_journey_observation_service
+                get_journey_observation_service(trip_operations_service.repository).reconcile(
+                    get_settings().fleet_position_fresh_minutes
+                )
                 self._snapshot = deepcopy(snapshot)
                 self._snapshot_at = time.monotonic()
                 snapshot["cache"] = {"hit": False, "age_seconds": 0}
