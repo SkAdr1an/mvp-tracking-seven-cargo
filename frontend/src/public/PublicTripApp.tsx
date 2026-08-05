@@ -88,7 +88,13 @@ export function PublicTripApp({ token }: { token: string }) {
         <div className="public-source-result"><span>Resultado</span><strong>{sourceSituation(trip.location_sources?.situation)}</strong>{trip.location_sources?.difference_km != null && <small>Diferença aproximada: {trip.location_sources.difference_km.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} km</small>}</div>
       </section>
 
-      <PublicTripMap key={token} trip={trip} alerts={portalAlerts.data?.alerts} />
+      {state.setDemoPosition && <section className="public-card public-demo-control" aria-label="Controle da posição fictícia">
+        <span>Demonstração interativa</span><h2>Movimente o veículo fictício</h2>
+        <p>Altere a posição para testar a entrada e a saída dos alertas. Nenhum dado será gravado.</p>
+        <input aria-label="Posição simulada na rota" type="range" min="0" max="19" value={state.demoPosition} onChange={(event) => state.setDemoPosition?.(Number(event.target.value))} />
+      </section>}
+
+      <PublicTripMap key={token} trip={trip} alerts={portalAlerts.data?.map_alerts ?? portalAlerts.data?.alerts} />
 
       {trip.route.important_points.length > 0 && <InfoSection icon={<MapPin />} title="Pontos importantes">
         {trip.route.important_points.map((point) => <p key={point.name}>{point.name}</p>)}

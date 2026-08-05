@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import { fetchPortalAlerts } from '../api'
 import type { PortalAlertsResponse } from '../types'
-import { isVisualDemo, visualDemoAlerts } from '../visualDemo'
+import { isVisualDemo, VISUAL_DEMO_POSITION_EVENT, visualDemoAlerts } from '../visualDemo'
 
 export function usePortalAlerts(token: string, enabled: boolean) {
   const demo = isVisualDemo(token)
   const [data, setData] = useState<PortalAlertsResponse | undefined>(() => demo ? visualDemoAlerts() : undefined)
   const [degraded, setDegraded] = useState(false)
   useEffect(() => {
-    if (demo) { setData(visualDemoAlerts()); setDegraded(false); return }
+    if (demo) {
+      const update = () => { setData(visualDemoAlerts()); setDegraded(false) }
+      update(); window.addEventListener(VISUAL_DEMO_POSITION_EVENT, update)
+      return () => window.removeEventListener(VISUAL_DEMO_POSITION_EVENT, update)
+    }
     if (!enabled) { setData(undefined); setDegraded(false); return }
     let active = true
     const controller = new AbortController()

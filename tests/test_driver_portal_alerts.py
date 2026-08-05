@@ -25,6 +25,8 @@ def alert_portal(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "driver_portal_pilot_trip_keys", "trip-alert")
     monkeypatch.setattr(settings, "driver_alert_max_age_minutes", 180)
     monkeypatch.setattr(settings, "driver_alert_route_corridor_km", 5)
+    monkeypatch.setattr(settings, "driver_alert_card_near_km", 150)
+    monkeypatch.setattr(settings, "driver_alert_card_critical_km", 250)
     database = tmp_path / "alerts.db"
     repository = OperationsRepository(database)
     repository.upsert_route({
@@ -39,7 +41,7 @@ def alert_portal(tmp_path, monkeypatch):
     })
     repository.ensure_trip("trip-alert", "ABC1D23", "provider", "route-alert")
     with repository.connect() as connection:
-        geometry = [{"latitude": 0, "longitude": index / 100} for index in range(101)]
+        geometry = [{"latitude": 0, "longitude": index / 100} for index in range(301)]
         connection.execute(
             """INSERT INTO route_geometry_versions(route_id,version,source,geometry_json,
                mandatory_points_json,corridor_m,segment_tolerances_json,active,created_at)
@@ -184,7 +186,47 @@ def test_validated_normal_climate_can_be_presented_as_distinct_demo_information(
     client, _, repository, traffic, token = alert_portal
     add_position(repository, .50)
     add_incident(traffic, "normal-climate", .55, severity="INFORMATIVO", category="CLIMA_NORMAL")
-    alert = client.get(f"/api/public/trips/{token}/alerts").json()["alerts"][0]
+    response = client.get(f"/api/public/trips/{token}/alerts").json()
+    assert response["alerts"] == []
+    alert = response["map_alerts"][0]
     assert alert["type"] == "CLIMA_NORMAL"
     assert alert["severity"] == "INFORMATIVO"
     assert "Condição estável" in alert["guidance"]
+
+
+def test_card_distance_bands_keep_distant_events_on_map_only(alert_portal):
+    client, _, repository, traffic, token = alert_portal
+    add_position(repository, .10)
+    add_incident(traffic, "near", .90)
+    add_incident(traffic, "mid-noncritical", 1.80)
+    add_incident(traffic, "mid-critical", 2.00, severity="CRITICO", category="BLOQUEIO")
+    add_incident(traffic, "far", 2.60, severity="CRITICO", category="BLOQUEIO")
+    response = client.get(f"/api/public/trips/{token}/alerts").json()
+    assert [item["id"] for item in response["alerts"]] == ["incident:near", "incident:mid-critical"]
+    assert {item["id"] for item in response["map_alerts"]} == {
+        "incident:near", "incident:mid-noncritical", "incident:mid-critical", "incident:far",
+    }
+
+
+def test_position_change_recalculates_order_and_removes_passed_alert(alert_portal):
+    client, _, repository, traffic, token = alert_portal
+    add_position(repository, .10)
+    add_incident(traffic, "first", .40)
+    add_incident(traffic, "second", .70)
+    initial = client.get(f"/api/public/trips/{token}/alerts").json()["alerts"]
+    assert [item["id"] for item in initial] == ["incident:first", "incident:second"]
+    initial_second_distance = initial[1]["distance_km"]
+    add_position(repository, .50, datetime.now(timezone.utc) + timedelta(seconds=1))
+    moved = client.get(f"/api/public/trips/{token}/alerts").json()["alerts"]
+    assert [item["id"] for item in moved] == ["incident:second"]
+    assert moved[0]["distance_km"] < initial_second_distance
+
+
+def test_no_relevant_event_keeps_an_empty_operational_panel_payload(alert_portal):
+    client, _, repository, traffic, token = alert_portal
+    add_position(repository, .50)
+    add_incident(traffic, "normal", .60, severity="INFORMATIVO", category="CLIMA_NORMAL")
+    add_incident(traffic, "far", 2.90, severity="CRITICO", category="BLOQUEIO")
+    response = client.get(f"/api/public/trips/{token}/alerts").json()
+    assert response["alerts"] == []
+    assert len(response["map_alerts"]) == 2

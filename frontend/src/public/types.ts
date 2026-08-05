@@ -64,6 +64,7 @@ export interface PortalAlert {
 export interface PortalAlertsResponse {
   enabled: boolean
   alerts: PortalAlert[]
+  map_alerts: PortalAlert[]
   integrations: Record<string, string>
   generated_at: string
 }

@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     driver_portal_pilot_trip_keys: str = ""
     driver_alert_max_age_minutes: int = 180
     driver_alert_route_corridor_km: float = 5
+    driver_alert_card_near_km: float = 150
+    driver_alert_card_critical_km: float = 250
     driver_alert_slow_traffic_first_km: float = 10
     driver_alert_slow_traffic_reinforce_km: float = 3
     driver_alert_blockage_first_km: float = 20

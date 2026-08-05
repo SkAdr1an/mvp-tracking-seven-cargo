@@ -55,7 +55,14 @@ test('token changes discard stale responses and remount isolated map layers', ()
   assert.match(hook, /requestSequence\.current !== sequence/)
   assert.match(hook, /setRecord\(undefined\)/)
   assert.match(app, /<PublicTripMap key=\{token\} trip=\{trip\}/)
+  assert.match(app, /map_alerts \?\? portalAlerts\.data\?\.alerts/)
   assert.match(map, /position && <Marker/)
+})
+
+test('visual demo can move its simulated vehicle without operational writes', () => {
+  assert.match(app, /Posição simulada na rota/)
+  assert.match(app, /Nenhum dado será gravado/)
+  assert.match(app, /state\.setDemoPosition/)
 })
 
 test('route and markers are visually differentiated without coordinate fallbacks', () => {

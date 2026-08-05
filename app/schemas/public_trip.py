@@ -90,6 +90,7 @@ class DriverPortalAlert(BaseModel):
 class DriverPortalAlertsResponse(BaseModel):
     enabled: bool
     alerts: list[DriverPortalAlert] = Field(default_factory=list)
+    map_alerts: list[DriverPortalAlert] = Field(default_factory=list)
     integrations: dict[str, str] = Field(default_factory=dict)
     generated_at: datetime
 

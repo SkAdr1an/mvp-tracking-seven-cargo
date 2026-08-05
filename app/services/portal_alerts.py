@@ -23,9 +23,9 @@ class PortalAlertService:
         if not settings.driver_portal_feature_allowed(
             trip["trip_key"], settings.driver_portal_alerts_enabled
         ):
-            return {"enabled": False, "alerts": [], "integrations": {"portal_alerts": "DISABLED"}, "generated_at": now}
+            return {"enabled": False, "alerts": [], "map_alerts": [], "integrations": {"portal_alerts": "DISABLED"}, "generated_at": now}
         if not self.repository.alert_schema_available():
-            return {"enabled": False, "alerts": [], "integrations": {"portal_alerts": "UNAVAILABLE"}, "generated_at": now}
+            return {"enabled": False, "alerts": [], "map_alerts": [], "integrations": {"portal_alerts": "UNAVAILABLE"}, "generated_at": now}
         geometry = self._geometry(trip.get("route_id"))
         sources = self.public_trips._location_sources(trip["trip_key"])
         position = self._position(sources)
@@ -40,8 +40,29 @@ class PortalAlertService:
         if deviation:
             candidates.append(deviation)
         candidates.sort(key=lambda item: (item["distance_km"] is None, item["distance_km"] or 0, item["id"]))
-        registered = self.repository.register_alerts(link["id"], candidates, now.isoformat())
-        return {"enabled": True, "alerts": registered, "integrations": integrations, "generated_at": now}
+        cards = [item for item in candidates if self._card_relevant(item)]
+        registered = self.repository.register_alerts(link["id"], cards, now.isoformat())
+        presentations = {item["id"]: item["presentation"] for item in registered}
+        map_alerts = [item | {"presentation": presentations.get(item["id"], "ACTIVE")} for item in candidates]
+        return {"enabled": True, "alerts": registered, "map_alerts": map_alerts, "integrations": integrations, "generated_at": now}
+
+    @staticmethod
+    def _card_relevant(alert: dict[str, Any]) -> bool:
+        settings = get_settings()
+        distance = alert.get("distance_km")
+        alert_type = str(alert.get("type") or "").upper()
+        if distance is None or distance < 0 or alert_type == "CLIMA_NORMAL":
+            return False
+        if distance <= settings.driver_alert_card_near_km:
+            return alert_type in {
+                "TRANSITO_LENTO", "CHUVA_LEVE", "CHUVA_FORTE",
+                "ACIDENTE_BLOQUEIO", "DESVIO_CONFIRMADO",
+            }
+        return (
+            distance <= settings.driver_alert_card_critical_km
+            and str(alert.get("severity") or "").upper() == "CRITICO"
+            and alert_type in {"CHUVA_FORTE", "ACIDENTE_BLOQUEIO", "DESVIO_CONFIRMADO"}
+        )
 
     @staticmethod
     def _position(sources: dict[str, Any]) -> dict[str, Any] | None:
@@ -82,9 +103,7 @@ class PortalAlertService:
             distance = event_progress - vehicle_progress
             if distance < -0.2 or lateral > settings.driver_alert_route_corridor_km:
                 continue
-            alert_type, first, reinforce, guidance = self._category(incident)
-            if distance > first:
-                continue
+            alert_type, _, reinforce, guidance = self._category(incident)
             values.append({
                 "id": f"incident:{incident['id']}", "type": alert_type,
                 "severity": incident["severity"], "distance_km": round(max(distance, 0), 1),
@@ -117,8 +136,6 @@ class PortalAlertService:
             heavy = risk.get("severity") == "high" or risk.get("type") in {"heavy_rain", "thunderstorm"}
             first = get_settings().driver_alert_heavy_rain_first_km if heavy else get_settings().driver_alert_light_rain_first_km
             reinforce = get_settings().driver_alert_heavy_rain_reinforce_km if heavy else get_settings().driver_alert_light_rain_reinforce_km
-            if distance > first:
-                continue
             result.append({
                 "id": f"weather:{risk.get('type')}:{index}:{point['latitude']:.3f}:{point['longitude']:.3f}",
                 "type": "CHUVA_FORTE" if heavy else "CHUVA_LEVE", "severity": "CRITICO" if heavy else "ATENCAO",

@@ -4,7 +4,7 @@ import { clearTripCache, readTripCache, saveTripCache } from '../storage/tripCac
 import { synchronizePublicTrip } from '../sync'
 import type { CachedPublicTrip } from '../types'
 import type { PublicTripFailureReason } from '../errors'
-import { isVisualDemo, visualDemoTrip } from '../visualDemo'
+import { isVisualDemo, setVisualDemoPosition, VISUAL_DEMO_POSITION_EVENT, visualDemoPosition, visualDemoTrip } from '../visualDemo'
 
 const cache = { read: readTripCache, save: saveTripCache, clear: clearTripCache }
 
@@ -59,7 +59,9 @@ export function usePublicTrip(token: string) {
     if (demo) {
       setRecord({ key: token, data: visualDemoTrip(), synchronizedAt: new Date().toISOString() })
       setLoading(false)
-      return
+      const update = () => setRecord({ key: token, data: visualDemoTrip(), synchronizedAt: new Date().toISOString() })
+      window.addEventListener(VISUAL_DEMO_POSITION_EVENT, update)
+      return () => window.removeEventListener(VISUAL_DEMO_POSITION_EVENT, update)
     }
     mounted.current = true
     activeToken.current = token
@@ -98,7 +100,9 @@ export function usePublicTrip(token: string) {
     }
   }, [demo, refresh, token])
 
-  return { record, online, loading, refreshing, invalid, terminalReason, error, refresh }
+  return { record, online, loading, refreshing, invalid, terminalReason, error, refresh,
+    demoPosition: demo ? visualDemoPosition() : undefined,
+    setDemoPosition: demo ? setVisualDemoPosition : undefined }
 }
 
 async function readCacheWithTimeout(token: string): Promise<CachedPublicTrip | undefined> {
