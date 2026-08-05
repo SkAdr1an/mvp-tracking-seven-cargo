@@ -161,6 +161,7 @@ async def submit_mobile_position(
             "feature_disabled": (404, "Compartilhamento de localização indisponível."),
             "feature_unavailable": (503, "Compartilhamento temporariamente indisponível."),
             "accuracy_too_low": (422, "A precisão informada é insuficiente."),
+            "invalid_coordinates": (422, "A localização informada é inválida."),
             "invalid_client_time": (422, "Horário da posição inválido."),
             "rate_limited": (429, "Aguarde antes de enviar uma nova posição."),
         }

@@ -1,8 +1,35 @@
 const CENTRAL_WHATSAPP_NUMBER = '553584027743'
-const CENTRAL_WHATSAPP_MESSAGE = 'Olá, Central Seven Cargo. Estou acessando o Portal do Motorista e preciso de auxílio.'
+import type { PublicTrip } from './types'
 
-export function buildCentralWhatsAppUrl(): string {
-  return `https://wa.me/${CENTRAL_WHATSAPP_NUMBER}?text=${encodeURIComponent(CENTRAL_WHATSAPP_MESSAGE)}`
+function clean(value?: string | null): string | null {
+  const text = value?.trim()
+  if (!text || /^(undefined|null|motorista não informado)$/i.test(text)) return null
+  return text
+}
+
+function place(placeValue: PublicTrip['route']['origin']): string | null {
+  const locality = clean(placeValue.city) && clean(placeValue.state)
+    ? `${clean(placeValue.city)}/${clean(placeValue.state)}` : clean(placeValue.city) || clean(placeValue.state)
+  return locality || clean(placeValue.name)
+}
+
+export function buildCentralWhatsAppMessage(trip: PublicTrip): string {
+  const name = clean(trip.driver_name)
+  const reference = clean(trip.trip_reference)
+  const origin = place(trip.route.origin)
+  const destination = place(trip.route.destination)
+  const plate = clean(trip.vehicle.plate)
+  const parts: string[] = []
+  if (name) parts.push(`Sou ${name}`)
+  if (reference) parts.push(`${name ? 'viagem' : 'Viagem'} ${reference}`)
+  if (origin && destination) parts.push(`na rota ${origin} → ${destination}`)
+  if (plate) parts.push(`veículo ${plate}`)
+  const identification = parts.join(', ')
+  return `Olá, Central Seven Cargo!${identification ? ` ${identification}.` : ''} Preciso de atendimento.`
+}
+
+export function buildCentralWhatsAppUrl(trip: PublicTrip): string {
+  return `https://wa.me/${CENTRAL_WHATSAPP_NUMBER}?text=${encodeURIComponent(buildCentralWhatsAppMessage(trip))}`
 }
 
 export function locationAgeLabel(recordedAt?: string | null, now = Date.now()): string {

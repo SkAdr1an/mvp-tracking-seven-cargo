@@ -102,6 +102,9 @@ def test_invalid_expired_revoked_and_finished_links_cannot_submit(mobile_portal)
 def test_invalid_coordinates_low_accuracy_and_abuse_are_rejected(mobile_portal):
     client, _, repository, token = mobile_portal
     assert client.post(f"/api/public/trips/{token}/positions", json=payload(latitude=91)).status_code == 422
+    zero = client.post(f"/api/public/trips/{token}/positions", json=payload(latitude=0, longitude=0))
+    assert zero.status_code == 422
+    assert zero.json()["reason"] == "invalid_coordinates"
     low = client.post(f"/api/public/trips/{token}/positions", json=payload(accuracy_m=1500))
     assert low.status_code == 422
     assert low.json()["reason"] == "accuracy_too_low"

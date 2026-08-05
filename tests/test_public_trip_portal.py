@@ -251,6 +251,7 @@ def test_public_dto_is_scoped_and_contains_no_internal_fields(portal):
     assert response.status_code == 200
     body = response.json()
     assert body["driver_name"] == "João da Silva"
+    assert body["trip_reference"] == "provider-99"
     assert body["route"]["origin"]["name"] == "Betim/MG"
     assert body["route"]["destination"]["name"] == "Jaboatão/PE"
     assert body["vehicle"] == {"plate": "ABC1D23", "trailer_plate": "DEF4G56"}
@@ -258,6 +259,28 @@ def test_public_dto_is_scoped_and_contains_no_internal_fields(portal):
     assert body["central_contact"]["phone"] == "31999999999"
     assert body["finished"] is False
     assert "estimated_arrival_updated_at" in body
+
+
+def test_public_portal_rejects_zero_zero_and_invalid_coordinates_without_logging_values(portal, caplog):
+    client, _, repository = portal
+    with repository.connect() as connection:
+        connection.execute(
+            "UPDATE operational_trips SET last_latitude=0,last_longitude=0 WHERE trip_key='secret-trip-key'"
+        )
+        connection.execute(
+            "UPDATE route_configs SET origin_latitude=0,origin_longitude=0,destination_latitude=95 WHERE id='route-1'"
+        )
+        connection.execute("DELETE FROM operational_positions WHERE trip_key='secret-trip-key'")
+    created = client.post("/api/trips/secret-trip-key/public-link", headers=auth(), json={}).json()
+    token = created["url"].rsplit("/", 1)[1]
+    with caplog.at_level(logging.WARNING):
+        body = client.get(f"/api/public/trips/{token}").json()
+    assert body["latest_position"] is None
+    assert body["route"]["origin"]["coordinate"] is None
+    assert body["route"]["destination"]["coordinate"] is None
+    assert "source=tracker reason=invalid_coordinate" in caplog.text
+    assert "latitude" not in caplog.text and "longitude" not in caplog.text
+    assert token not in caplog.text
     serialized = str(body).lower()
     for forbidden in (
         "trip_key", "provider_trip_id", "token_hash", "created_by", "cpf",

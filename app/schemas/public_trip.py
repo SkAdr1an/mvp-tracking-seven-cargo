@@ -126,6 +126,7 @@ class PublicRoute(BaseModel):
 
 class PublicTripResponse(BaseModel):
     driver_name: str
+    trip_reference: str | None = None
     route: PublicRoute
     public_status: str
     loaded_at: datetime | None = None

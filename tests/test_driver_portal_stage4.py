@@ -47,3 +47,12 @@ def test_required_scenario_matrix_is_complete() -> None:
     assert [item["id"] for item in matrix] == list(range(1, 33))
     assert all(item["automated"] and item["evidence"] for item in matrix)
     assert all(item["data_scope"] == "fixture_or_mock" for item in matrix)
+
+
+def test_visual_demo_is_explicitly_synthetic_brazilian_and_never_uses_zero_zero() -> None:
+    demo = json.loads((FIXTURE.parent / "driver_portal_visual_demo.json").read_text(encoding="utf-8"))
+    assert demo["synthetic"] is True
+    assert "brasileira fictícia" in demo["label"].lower()
+    coordinates = [demo["origin"], demo["vehicle"], demo["destination"], *demo["alerts"]]
+    assert all((item["latitude"], item["longitude"]) != (0, 0) for item in coordinates)
+    assert all(-34 <= item["latitude"] <= 6 and -74 <= item["longitude"] <= -34 for item in coordinates)

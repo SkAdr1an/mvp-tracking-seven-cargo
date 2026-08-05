@@ -5,6 +5,7 @@ export interface PublicCoordinate {
 
 export interface PublicTrip {
   driver_name: string
+  trip_reference?: string | null
   route: {
     name?: string | null
     origin: { name: string; city?: string | null; state?: string | null; coordinate?: PublicCoordinate | null }

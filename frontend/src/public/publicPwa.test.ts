@@ -55,17 +55,17 @@ test('token changes discard stale responses and remount isolated map layers', ()
   assert.match(hook, /requestSequence\.current !== sequence/)
   assert.match(hook, /setRecord\(undefined\)/)
   assert.match(app, /<PublicTripMap key=\{token\} trip=\{trip\}/)
-  assert.equal((map.match(/\{position && <CircleMarker/g) || []).length, 1)
+  assert.match(map, /position && <Marker/)
 })
 
-test('route coordinates form one polyline and never become driver markers', () => {
-  assert.match(map, /const geometry = trip\.route\.geometry\.map/)
-  assert.equal((map.match(/<Polyline/g) || []).length, 1)
-  assert.doesNotMatch(map, /geometry\.map\([^\n]*CircleMarker/)
-  assert.equal((map.match(/\{position && <CircleMarker/g) || []).length, 1)
-  assert.equal((map.match(/\{origin && <CircleMarker/g) || []).length, 1)
-  assert.equal((map.match(/\{destination && <CircleMarker/g) || []).length, 1)
-  assert.match(map, /trip\.route\.important_points\.map/)
+test('route and markers are visually differentiated without coordinate fallbacks', () => {
+  assert.match(map, /splitRouteAtPosition/)
+  assert.equal((map.match(/<Polyline/g) || []).length, 2)
+  assert.doesNotMatch(map, /latitude: -14\.2|longitude: -51\.9/)
+  assert.match(map, /public-map-marker--origin/)
+  assert.match(map, /public-map-marker--destination/)
+  assert.match(map, /public-map-marker--vehicle/)
+  assert.match(map, /Localização ainda não disponível/)
 })
 
 test('public route card shows linked CDs, locality and travel direction responsively', () => {
@@ -78,9 +78,12 @@ test('public route card shows linked CDs, locality and travel direction responsi
   assert.match(styles, /\.public-route-line svg\{transform:rotate\(90deg\)/)
 })
 
-test('public map labels only origin, destination and current vehicle position', () => {
+test('public map labels endpoints, vehicle, alerts and operational controls', () => {
   assert.match(map, /CD de origem — \{trip\.route\.origin\.name\}/)
   assert.match(map, /CD de destino — \{trip\.route\.destination\.name\}/)
   assert.match(map, /Posição atual do veículo/)
-  assert.equal((map.match(/\{position && <CircleMarker/g) || []).length, 1)
+  assert.match(map, /Centralizar no veículo/)
+  assert.match(map, /Ajustar à rota completa/)
+  assert.match(map, /MapLegend/)
+  assert.match(map, /AlertMarker/)
 })

@@ -192,6 +192,10 @@ class PublicTripService:
             raise MobileLocationRejected("feature_disabled")
         if not self.repository.mobile_schema_available():
             raise MobileLocationRejected("feature_unavailable")
+        if not self._normalize_coordinate({
+            "latitude": payload.latitude, "longitude": payload.longitude,
+        }):
+            raise MobileLocationRejected("invalid_coordinates")
         if payload.accuracy_m > settings.driver_mobile_location_max_accuracy_m:
             raise MobileLocationRejected("accuracy_too_low")
         received = datetime.now(timezone.utc)
@@ -261,17 +265,26 @@ class PublicTripService:
         )
         position = None
         if trip.get("last_latitude") is not None and trip.get("last_longitude") is not None:
-            history = self.operations.position_history(trip_key, 1)
-            latest_source = history[-1].get("source") if history else None
-            position = {
-                "latitude": trip["last_latitude"],
-                "longitude": trip["last_longitude"],
-                "speed_kmh": max(trip["last_speed_kmh"], 0) if trip.get("last_speed_kmh") is not None else None,
-                "recorded_at": _optional_datetime(
-                    trip.get("last_position_at"), "last_position_at", trip_key
-                ) or updated,
-                "source": self._public_position_source(latest_source),
-            }
+            normalized_position = self._normalize_coordinate({
+                "latitude": trip.get("last_latitude"),
+                "longitude": trip.get("last_longitude"),
+            })
+            if normalized_position:
+                history = self.operations.position_history(trip_key, 1)
+                latest_source = history[-1].get("source") if history else None
+                position = {
+                    **normalized_position,
+                    "speed_kmh": max(trip["last_speed_kmh"], 0) if trip.get("last_speed_kmh") is not None else None,
+                    "recorded_at": _optional_datetime(
+                        trip.get("last_position_at"), "last_position_at", trip_key
+                    ) or updated,
+                    "source": self._public_position_source(latest_source),
+                }
+            else:
+                logger.warning(
+                    "Public trip ignored unavailable position trip_id=%s source=tracker reason=invalid_coordinate",
+                    trip_key,
+                )
         settings = get_settings()
         sources = self._location_sources(trip_key)
         instructions = [
@@ -279,6 +292,7 @@ class PublicTripService:
         ]
         return {
             "driver_name": trip.get("current_driver") or "Motorista não informado",
+            "trip_reference": str(trip.get("provider_trip_id") or "").strip() or None,
             "route": {
                 "name": route.get("name") if route else None,
                 "origin": {
@@ -348,15 +362,31 @@ class PublicTripService:
 
         def present(value: dict[str, Any] | None, label: str) -> dict[str, Any] | None:
             if not value:
+                logger.info(
+                    "Public trip location source unavailable trip_id=%s source=%s",
+                    trip_key,
+                    "mobile" if label == "Celular do motorista" else "tracker",
+                )
                 return None
-            recorded = _parse_datetime(value.get("recorded_at"))
+            coordinate = self._normalize_coordinate(value)
+            if not coordinate:
+                logger.warning(
+                    "Public trip ignored unavailable source trip_id=%s source=%s reason=invalid_coordinate",
+                    trip_key,
+                    "mobile" if label == "Celular do motorista" else "tracker",
+                )
+                return None
+            try:
+                recorded = _parse_datetime(value.get("recorded_at"))
+            except (TypeError, ValueError):
+                recorded = None
             age = max(0, int((now - recorded.astimezone(timezone.utc)).total_seconds())) if recorded else 0
             stale_after = (
                 settings.fleet_position_fresh_minutes if label == "Rastreador do veículo"
                 else settings.driver_mobile_location_stale_minutes
             ) * 60
             return {
-                "latitude": value["latitude"], "longitude": value["longitude"],
+                **coordinate,
                 "speed_kmh": value.get("speed_kmh"), "recorded_at": recorded,
                 "source": label, "accuracy_m": value.get("accuracy_m"),
                 "age_seconds": age, "status": "STALE" if age > stale_after else "CURRENT",
@@ -428,9 +458,16 @@ class PublicTripService:
         else:
             return None
         try:
-            return {"latitude": float(lat), "longitude": float(lon)}
+            latitude, longitude = float(lat), float(lon)
         except (TypeError, ValueError):
             return None
+        if not math.isfinite(latitude) or not math.isfinite(longitude):
+            return None
+        if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
+            return None
+        if latitude == 0 and longitude == 0:
+            return None
+        return {"latitude": latitude, "longitude": longitude}
 
     @staticmethod
     def _route_coordinate(route: dict[str, Any] | None, prefix: str) -> dict[str, float] | None:

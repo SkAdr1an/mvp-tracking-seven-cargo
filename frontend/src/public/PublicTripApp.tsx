@@ -105,7 +105,10 @@ export function PublicTripApp({ token }: { token: string }) {
 
       <section className="public-card public-contact">
         <div><MessageCircle /><div><span>Precisa de ajuda?</span><strong>{trip.central_contact.name}</strong></div></div>
-        <a href={buildCentralWhatsAppUrl()} target="_blank" rel="noopener noreferrer"><MessageCircle /> WhatsApp Central</a>
+        <a href="#whatsapp-central" onClick={(event) => {
+          event.preventDefault()
+          window.open(buildCentralWhatsAppUrl(trip), '_blank', 'noopener,noreferrer')
+        }}><MessageCircle /> WhatsApp Central</a>
       </section>
 
       <footer className="public-footer">

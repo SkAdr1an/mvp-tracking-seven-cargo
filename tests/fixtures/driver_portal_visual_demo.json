@@ -1,0 +1,11 @@
+{
+  "synthetic": true,
+  "label": "Rota brasileira fictícia — Betim/MG → Contagem/MG",
+  "origin": {"latitude": -19.9676, "longitude": -44.2014},
+  "vehicle": {"latitude": -19.9500, "longitude": -44.1300},
+  "destination": {"latitude": -19.9321, "longitude": -44.0539},
+  "alerts": [
+    {"type": "TRANSITO_LENTO", "latitude": -19.9410, "longitude": -44.0920, "severity": "ATENCAO"},
+    {"type": "BLOQUEIO", "latitude": -19.9370, "longitude": -44.0760, "severity": "CRITICO"}
+  ]
+}
