@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import { PublicTripApiError } from './errors.ts'
 import { synchronizePublicTrip, type PublicTripCache } from './sync.ts'
 import type { CachedPublicTrip, PublicTrip } from './types.ts'
+
+const publicTripHook = readFileSync(new URL('./hooks/usePublicTrip.ts', import.meta.url), 'utf8')
 
 const trip = (driver: string): PublicTrip => ({
   driver_name: driver,
@@ -103,4 +106,10 @@ test('temporary API error never erases a previously synchronized trip', async ()
   assert.equal(result.kind, 'cached')
   assert.equal(cache.records.get('token-a')?.data.driver_name, 'Informação válida')
   assert.deepEqual(cache.cleared, [])
+})
+
+test('blocked browser cache cannot keep the portal loading forever', () => {
+  assert.match(publicTripHook, /readCacheWithTimeout/)
+  assert.match(publicTripHook, /Promise\.race/)
+  assert.match(publicTripHook, /800/)
 })

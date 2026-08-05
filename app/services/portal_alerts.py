@@ -183,6 +183,8 @@ class PortalAlertService:
         settings = get_settings(); category = str(incident.get("category") or "OUTRO").upper()
         if category in {"CONGESTIONAMENTO", "TRANSITO_LENTO", "TRECHO_LENTO"}:
             return "TRANSITO_LENTO", settings.driver_alert_slow_traffic_first_km, settings.driver_alert_slow_traffic_reinforce_km, "Reduza a velocidade e mantenha distância segura."
+        if category == "CLIMA_NORMAL":
+            return "CLIMA_NORMAL", settings.driver_alert_heavy_rain_first_km, settings.driver_alert_heavy_rain_reinforce_km, "Condição estável no trecho; mantenha a condução segura."
         if category == "RISCO_CLIMATICO":
             description = str(incident.get("description") or "").lower(); heavy = any(word in description for word in ("forte", "temporal", "tempestade"))
             return ("CHUVA_FORTE" if heavy else "CHUVA_LEVE", settings.driver_alert_heavy_rain_first_km if heavy else settings.driver_alert_light_rain_first_km, settings.driver_alert_heavy_rain_reinforce_km if heavy else settings.driver_alert_light_rain_reinforce_km, "Reduza a velocidade e considere pista molhada.")

@@ -27,6 +27,21 @@ export function splitRouteAtPosition(
   }
 }
 
+export function routeDistanceStats(geometry: PublicCoordinate[], position?: PublicCoordinate | null) {
+  const split = splitRouteAtPosition(geometry, position)
+  const length = (points: PublicCoordinate[]) => points.slice(1).reduce((total, point, index) => {
+    const previous = points[index]
+    const radius = 6371.0088
+    const lat1 = previous.latitude * Math.PI / 180
+    const lat2 = point.latitude * Math.PI / 180
+    const dLat = lat2 - lat1
+    const dLon = (point.longitude - previous.longitude) * Math.PI / 180
+    const value = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
+    return total + radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value))
+  }, 0)
+  return { travelledKm: length(split.travelled), remainingKm: length(split.remaining) }
+}
+
 export function mapPriorityCoordinates(trip: PublicTrip): PublicCoordinate[] {
   const position = isValidCoordinate(trip.latest_position)
     ? trip.latest_position
@@ -41,6 +56,7 @@ export function mapPriorityCoordinates(trip: PublicTrip): PublicCoordinate[] {
 export function alertVisual(alert: PortalAlert): { symbol: string; className: string; label: string } {
   const type = alert.type.toUpperCase()
   const base = type.includes('CHUVA') ? ['☔', 'weather', 'Chuva']
+    : type.includes('CLIMA_NORMAL') ? ['☀', 'normal-weather', 'Clima normal']
     : type.includes('TRANSITO') ? ['≋', 'traffic', 'Trânsito']
       : type.includes('ACIDENTE') ? ['!', 'accident', 'Acidente']
         : type.includes('BLOQUEIO') || type.includes('INTERDICAO') ? ['×', 'blockage', 'Bloqueio']

@@ -1,6 +1,6 @@
 import {
   AlertTriangle, ArrowRight, CalendarClock, Clock3, MapPin, MessageCircle, Navigation, RefreshCw,
-  Satellite, ShieldCheck, Truck, UserRound, Wifi, WifiOff,
+  Satellite, ShieldCheck, Truck, Wifi, WifiOff,
 } from 'lucide-react'
 import { PublicTripMap } from './PublicTripMap'
 import { usePublicTrip } from './hooks/usePublicTrip'
@@ -69,7 +69,6 @@ export function PublicTripApp({ token }: { token: string }) {
         />
         <Summary icon={<CalendarClock />} label="Carregamento" value={formatDateTime(trip.loaded_at)} />
         <Summary icon={<Truck />} label="Veículo" value={`${trip.vehicle.plate}${trip.vehicle.trailer_plate ? ` · ${trip.vehicle.trailer_plate}` : ''}`} />
-        <Summary icon={<UserRound />} label="Motorista" value={trip.driver_name} />
       </section>
 
       {trip.stale && <div className="public-stale"><AlertTriangle /><div><strong>Localização desatualizada</strong><span>A última posição pode não representar o local atual do veículo.</span></div></div>}

@@ -45,3 +45,8 @@ test('portal preserves the operational areas introduced in stage 1', () => {
   assert.doesNotMatch(sharing, /A página deverá permanecer aberta/)
   assert.match(styles, /@media\(max-width:600px\)/)
 })
+
+test('driver name remains only in the main portal identification', () => {
+  assert.equal((app.match(/trip\.driver_name/g) || []).length, 1)
+  assert.doesNotMatch(app, /label="Motorista"/)
+})

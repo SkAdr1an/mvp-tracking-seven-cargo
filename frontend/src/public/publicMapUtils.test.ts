@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { alertVisual, isValidCoordinate, mapPriorityCoordinates, splitRouteAtPosition } from './publicMapUtils.ts'
+import { alertVisual, isValidCoordinate, mapPriorityCoordinates, routeDistanceStats, splitRouteAtPosition } from './publicMapUtils.ts'
 import type { PublicTrip } from './types.ts'
 
 const base = {
@@ -29,11 +29,14 @@ test('route is split into travelled and remaining sections near vehicle', () => 
   const split = splitRouteAtPosition(geometry, { latitude: -19.91, longitude: -43.91 })
   assert.equal(split.travelled.length, 2)
   assert.equal(split.remaining.length, 2)
+  const distances = routeDistanceStats(geometry, { latitude: -19.91, longitude: -43.91 })
+  assert.ok(distances.travelledKm > 0)
+  assert.ok(distances.remainingKm > 0)
 })
 
 test('traffic, rain, accident, blockage and deviation have distinct visuals and severity', () => {
-  const types = ['TRANSITO_LENTO', 'CHUVA_FORTE', 'ACIDENTE', 'BLOQUEIO', 'DESVIO_CONFIRMADO']
+  const types = ['TRANSITO_LENTO', 'CHUVA_FORTE', 'ACIDENTE', 'BLOQUEIO', 'DESVIO_CONFIRMADO', 'CLIMA_NORMAL']
   const visuals = types.map((type) => alertVisual({ type, severity: type === 'BLOQUEIO' ? 'CRITICO' : 'ATENCAO' } as never))
-  assert.equal(new Set(visuals.map((item) => item.className.split(' ')[0])).size, 5)
+  assert.equal(new Set(visuals.map((item) => item.className.split(' ')[0])).size, 6)
   assert.match(visuals[3].className, /critical/)
 })

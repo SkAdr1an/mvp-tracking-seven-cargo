@@ -3,7 +3,7 @@ import { divIcon, latLngBounds, type LatLngExpression, type Map as LeafletMap } 
 import { MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from 'react-leaflet'
 import type { PortalAlert, PublicCoordinate, PublicTrip } from './types'
 import {
-  alertVisual, isValidCoordinate, mapPriorityCoordinates, splitRouteAtPosition,
+  alertVisual, isValidCoordinate, mapPriorityCoordinates, routeDistanceStats, splitRouteAtPosition,
 } from './publicMapUtils'
 import { locationAgeLabel } from './portalUtils'
 
@@ -21,6 +21,7 @@ export function PublicTripMap({ trip, alerts = [] }: { trip: PublicTrip; alerts?
   const position = tracker || mobile
   const geometry = trip.route.geometry.filter(isValidCoordinate)
   const routeParts = splitRouteAtPosition(geometry, position)
+  const distances = routeDistanceStats(geometry, position)
   const priority = mapPriorityCoordinates(trip)
   const validAlerts = alerts.filter((alert) => isValidCoordinate(alert as PublicCoordinate))
   const important = trip.route.important_points.filter((point) => isValidCoordinate(point.coordinate))
@@ -29,10 +30,13 @@ export function PublicTripMap({ trip, alerts = [] }: { trip: PublicTrip; alerts?
     ...validAlerts.map((alert) => ({ latitude: alert.latitude!, longitude: alert.longitude! })),
     ...important.map((point) => point.coordinate),
   ]
+  useEffect(() => {
+    if (window.location.hash === '#trip-map') document.getElementById('trip-map')?.scrollIntoView()
+  }, [])
 
   if (!mapPoints.length) return <UnavailableMap />
   const center = mapPoints[0]
-  return <section className="public-card public-map-card" aria-labelledby="trip-map-title">
+  return <section id="trip-map" className="public-card public-map-card" aria-labelledby="trip-map-title">
     <div className="public-section-title public-map-heading">
       <div><span>Rota da viagem</span><h2 id="trip-map-title">Acompanhamento no mapa</h2></div>
       {trip.stale && <strong className="public-map-stale">Posição antiga</strong>}
@@ -41,11 +45,12 @@ export function PublicTripMap({ trip, alerts = [] }: { trip: PublicTrip; alerts?
       <MapContainer center={toLatLng(center)} zoom={position ? 8 : 6} className="public-map" scrollWheelZoom={false}>
         <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
         <MapViewport points={priority} position={position} />
-        {routeParts.remaining.length > 1 && <Polyline positions={routeParts.remaining.map(toLatLng)} pathOptions={{ color: '#f3c623', weight: 6, opacity: .95 }} />}
-        {routeParts.travelled.length > 1 && <Polyline positions={routeParts.travelled.map(toLatLng)} pathOptions={{ color: '#4f5b55', weight: 6, opacity: .95, dashArray: '8 7' }} />}
+        {geometry.length > 1 && <Polyline positions={geometry.map(toLatLng)} pathOptions={{ color: '#27332d', weight: 9, opacity: .95 }} />}
+        {routeParts.travelled.length > 1 && <Polyline positions={routeParts.travelled.map(toLatLng)} pathOptions={{ color: '#35b871', weight: 6, opacity: 1 }} />}
+        {routeParts.remaining.length > 1 && <Polyline positions={routeParts.remaining.map(toLatLng)} pathOptions={{ color: '#f3c623', weight: 6, opacity: 1, dashArray: '4 10', lineCap: 'round' }} />}
         {geometry.length > 1 && <DirectionMarker geometry={routeParts.remaining.length > 1 ? routeParts.remaining : geometry} />}
-        {origin && <Marker position={toLatLng(origin)} icon={marker('O', 'public-map-marker--origin', 'Origem')}><Popup><strong>Origem</strong><br/>CD de origem — {trip.route.origin.name}<br/>{placeLocation(trip.route.origin)}</Popup></Marker>}
-        {destination && <Marker position={toLatLng(destination)} icon={marker('D', 'public-map-marker--destination', 'Destino')}><Popup><strong>Destino</strong><br/>CD de destino — {trip.route.destination.name}<br/>{placeLocation(trip.route.destination)}</Popup></Marker>}
+        {origin && <Marker position={toLatLng(origin)} icon={marker('O', 'public-map-marker--origin', 'Origem')}><Popup><strong>Origem</strong><br/>{placeLocation(trip.route.origin)}<br/>{position ? `${formatKm(distances.travelledKm)} percorridos` : 'Distância indisponível'}</Popup></Marker>}
+        {destination && <Marker position={toLatLng(destination)} icon={marker('D', 'public-map-marker--destination', 'Destino')}><Popup><strong>Destino</strong><br/>{placeLocation(trip.route.destination)}<br/>{position ? `${formatKm(distances.remainingKm)} restantes` : 'Distância indisponível'}</Popup></Marker>}
         {position && <Marker position={toLatLng(position)} icon={marker('🚚', `public-map-marker--vehicle${trip.stale ? ' is-stale' : ''}`, 'Veículo')}><Popup><strong>{tracker ? 'Posição atual do veículo' : 'Posição complementar do celular'}</strong><br/>{locationAgeLabel(position.recorded_at)}{mobile && !tracker && mobile.accuracy_m != null && <><br/>Precisão: {Math.round(mobile.accuracy_m)} m</>}</Popup></Marker>}
         {validAlerts.map((alert) => <AlertMarker key={alert.id} alert={alert} />)}
         {important.map((point) => <Marker key={`${point.name}-${point.coordinate.latitude}-${point.coordinate.longitude}`} position={toLatLng(point.coordinate)} icon={marker('•', 'public-map-marker--point', 'Ponto importante')}><Popup>{point.name}</Popup></Marker>)}
@@ -91,7 +96,7 @@ function DirectionMarker({ geometry }: { geometry: PublicCoordinate[] }) {
 function AlertMarker({ alert }: { alert: PortalAlert }) {
   const visual = useMemo(() => alertVisual(alert), [alert])
   return <Marker position={[alert.latitude!, alert.longitude!]} icon={marker(visual.symbol, `public-map-alert ${visual.className}`, visual.label)}>
-    <Popup><strong>{visual.label}</strong><br/>{alert.distance_km != null ? `Aproximadamente ${alert.distance_km} km` : 'Distância indisponível'}<br/>{locationAgeLabel(alert.updated_at)}<br/>{alert.guidance}</Popup>
+    <Popup><strong>{visual.label}</strong><br/>{alert.reference || 'Trecho aproximado indisponível'}<br/>{alert.distance_km != null ? `A aproximadamente ${formatKm(alert.distance_km)} do veículo` : 'Distância indisponível'}<br/>Gravidade: {severityLabel(alert.severity)}<br/>{locationAgeLabel(alert.updated_at)}<br/>{alert.guidance}<br/><small>{alert.source}</small></Popup>
   </Marker>
 }
 
@@ -101,3 +106,5 @@ function MapLegend() {
 
 function toLatLng(point: PublicCoordinate): LatLngExpression { return [point.latitude, point.longitude] }
 function placeLocation(place: PublicTrip['route']['origin']): string { return place.city && place.state ? `${place.city}/${place.state}` : place.city || place.state || 'Não informado' }
+function formatKm(value: number): string { return `${Math.round(value).toLocaleString('pt-BR')} km` }
+function severityLabel(value: string): string { return value === 'CRITICO' ? 'Crítica' : value === 'ATENCAO' ? 'Atenção' : 'Informativa' }

@@ -289,6 +289,11 @@ def test_public_portal_rejects_zero_zero_and_invalid_coordinates_without_logging
         assert forbidden not in serialized
 
 
+def test_demo_position_source_is_explicitly_identified_as_fictitious() -> None:
+    assert PublicTripService._public_position_source("trafegus:simulacao") == "Posição fictícia de demonstração"
+    assert PublicTripService._public_position_source("trafegus:fleet") == "Rastreador do veículo"
+
+
 def test_invalid_expired_and_revoked_tokens_return_safe_specific_reasons(portal):
     client, service, repository = portal
     invalid = "A" * 43

@@ -23,3 +23,4 @@
 @media(max-width:380px){.public-header{padding-right:10px;padding-left:10px}.public-connection{width:38px;padding:0;justify-content:center}.public-connection span{display:none}.public-summary{padding:12px}.public-footer{padding-right:10px;padding-left:10px}.public-footer button{padding:0 12px}}
 @media(orientation:landscape) and (max-height:560px){.public-map{height:280px}}
 @media(max-width:600px){.public-route-line span{white-space:normal}.public-summary strong{overflow-wrap:anywhere}}
+.public-map-marker--origin{background:#245d91;color:#fff}.public-map-marker--destination{background:var(--yellow);color:#111}.public-map-alert--normal-weather{background:#3f8f63}.public-map-legend .origin{background:#245d91}.public-map-legend .destination{background:var(--yellow)}.public-map-legend .travelled{background:#35b871}

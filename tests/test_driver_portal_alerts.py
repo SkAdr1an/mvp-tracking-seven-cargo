@@ -178,3 +178,13 @@ def test_cached_weather_and_active_deviation_are_reused_without_external_calls(a
         )
     alerts = client.get(f"/api/public/trips/{token}/alerts").json()["alerts"]
     assert {item["type"] for item in alerts} == {"CHUVA_FORTE", "DESVIO_CONFIRMADO"}
+
+
+def test_validated_normal_climate_can_be_presented_as_distinct_demo_information(alert_portal):
+    client, _, repository, traffic, token = alert_portal
+    add_position(repository, .50)
+    add_incident(traffic, "normal-climate", .55, severity="INFORMATIVO", category="CLIMA_NORMAL")
+    alert = client.get(f"/api/public/trips/{token}/alerts").json()["alerts"][0]
+    assert alert["type"] == "CLIMA_NORMAL"
+    assert alert["severity"] == "INFORMATIVO"
+    assert "Condição estável" in alert["guidance"]

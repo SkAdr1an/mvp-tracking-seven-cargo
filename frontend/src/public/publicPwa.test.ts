@@ -60,7 +60,9 @@ test('token changes discard stale responses and remount isolated map layers', ()
 
 test('route and markers are visually differentiated without coordinate fallbacks', () => {
   assert.match(map, /splitRouteAtPosition/)
-  assert.equal((map.match(/<Polyline/g) || []).length, 2)
+  assert.equal((map.match(/<Polyline/g) || []).length, 3)
+  assert.match(map, /color: '#35b871', weight: 6, opacity: 1/)
+  assert.match(map, /color: '#f3c623'[\s\S]*dashArray: '4 10'/)
   assert.doesNotMatch(map, /latitude: -14\.2|longitude: -51\.9/)
   assert.match(map, /public-map-marker--origin/)
   assert.match(map, /public-map-marker--destination/)
@@ -79,8 +81,10 @@ test('public route card shows linked CDs, locality and travel direction responsi
 })
 
 test('public map labels endpoints, vehicle, alerts and operational controls', () => {
-  assert.match(map, /CD de origem — \{trip\.route\.origin\.name\}/)
-  assert.match(map, /CD de destino — \{trip\.route\.destination\.name\}/)
+  assert.match(map, /<strong>Origem<\/strong>/)
+  assert.match(map, /<strong>Destino<\/strong>/)
+  assert.match(map, /distances\.travelledKm/)
+  assert.match(map, /distances\.remainingKm/)
   assert.match(map, /Posição atual do veículo/)
   assert.match(map, /Centralizar no veículo/)
   assert.match(map, /Ajustar à rota completa/)

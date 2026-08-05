@@ -411,6 +411,8 @@ class PublicTripService:
     @staticmethod
     def _public_position_source(source: Any) -> str:
         normalized = str(source or "").strip().upper()
+        if "SIMULACAO" in normalized:
+            return "Posição fictícia de demonstração"
         if normalized == "LINK_MOTORISTA":
             return "Celular do motorista"
         if normalized:

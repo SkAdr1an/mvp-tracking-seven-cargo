@@ -53,6 +53,12 @@ def test_visual_demo_is_explicitly_synthetic_brazilian_and_never_uses_zero_zero(
     demo = json.loads((FIXTURE.parent / "driver_portal_visual_demo.json").read_text(encoding="utf-8"))
     assert demo["synthetic"] is True
     assert "brasileira fictícia" in demo["label"].lower()
-    coordinates = [demo["origin"], demo["vehicle"], demo["destination"], *demo["alerts"]]
+    coordinates = [demo["origin"], demo["vehicle"], demo["destination"], *demo["route"], *demo["alerts"]]
     assert all((item["latitude"], item["longitude"]) != (0, 0) for item in coordinates)
     assert all(-34 <= item["latitude"] <= 6 and -74 <= item["longitude"] <= -34 for item in coordinates)
+    assert demo["route"][0] == demo["origin"]
+    assert demo["route"][-1] == demo["destination"]
+    assert demo["vehicle"] in demo["route"]
+    assert {item["type"] for item in demo["alerts"]} == {
+        "TRANSITO_LENTO", "ACIDENTE_BLOQUEIO", "CHUVA_FORTE", "CLIMA_NORMAL",
+    }
