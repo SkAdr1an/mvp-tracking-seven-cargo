@@ -1,0 +1,35 @@
+{
+  "synthetic": true,
+  "label": "Rota rodoviária brasileira fictícia — Betim/MG → Jaboatão dos Guararapes/PE",
+  "route": [
+    {"latitude": -19.9676, "longitude": -44.2014},
+    {"latitude": -19.8118, "longitude": -43.1735},
+    {"latitude": -19.2249, "longitude": -42.4823},
+    {"latitude": -18.8511, "longitude": -41.9494},
+    {"latitude": -18.2427, "longitude": -41.7350},
+    {"latitude": -17.8578, "longitude": -41.5053},
+    {"latitude": -16.8692, "longitude": -41.2473},
+    {"latitude": -15.6401, "longitude": -40.7584},
+    {"latitude": -14.8619, "longitude": -40.8446},
+    {"latitude": -13.8570, "longitude": -40.0831},
+    {"latitude": -12.9714, "longitude": -39.2569},
+    {"latitude": -12.2664, "longitude": -38.9663},
+    {"latitude": -12.1356, "longitude": -38.4192},
+    {"latitude": -11.3708, "longitude": -37.6611},
+    {"latitude": -10.9091, "longitude": -37.0677},
+    {"latitude": -10.2832, "longitude": -36.5868},
+    {"latitude": -9.6658, "longitude": -35.7353},
+    {"latitude": -8.8841, "longitude": -35.1512},
+    {"latitude": -8.2058, "longitude": -35.5679},
+    {"latitude": -8.1120, "longitude": -35.0147}
+  ],
+  "origin": {"latitude": -19.9676, "longitude": -44.2014},
+  "vehicle": {"latitude": -17.8578, "longitude": -41.5053},
+  "destination": {"latitude": -8.1120, "longitude": -35.0147},
+  "alerts": [
+    {"type": "TRANSITO_LENTO", "latitude": -16.8692, "longitude": -41.2473, "severity": "ATENCAO", "reference": "BR-116 — trecho fictício próximo a Itaobim/MG"},
+    {"type": "ACIDENTE_BLOQUEIO", "latitude": -14.8619, "longitude": -40.8446, "severity": "CRITICO", "reference": "BR-116 — trecho fictício próximo a Vitória da Conquista/BA"},
+    {"type": "CHUVA_FORTE", "latitude": -12.2664, "longitude": -38.9663, "severity": "CRITICO", "reference": "BR-116 — trecho fictício próximo a Feira de Santana/BA"},
+    {"type": "CLIMA_NORMAL", "latitude": -10.9091, "longitude": -37.0677, "severity": "INFORMATIVO", "reference": "BR-101 — trecho fictício próximo a Aracaju/SE"}
+  ]
+}

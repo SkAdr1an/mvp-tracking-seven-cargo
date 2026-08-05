@@ -1,0 +1,15 @@
+import { CloudSun, Map, Radio, RefreshCw, Server } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../api'
+
+export function Integrations() {
+  const health=useQuery({queryKey:['health'],queryFn:api.health,refetchInterval:30_000})
+  const status=useQuery({queryKey:['integrations'],queryFn:api.integrations,refetchInterval:60_000})
+  const refresh=()=>{health.refetch();status.refetch()}
+  return <div className="page-stack"><div className="section-heading"><div><span className="eyebrow">Status do sistema</span><h2>Serviços conectados</h2><p>Disponibilidade baseada na última consulta real, não apenas nas credenciais.</p></div><button className="secondary-button" onClick={refresh}><RefreshCw size={17}/>Atualizar agora</button></div><section className="service-grid"><ServiceCard icon={Server} name="Backend Seven Cargo" description="API principal e rotas operacionais" status={health.data?.status==='ok'?'operational':health.isError?'unavailable':'checking'}/><ServiceCard icon={Map} name="TomTom Routing" description="Rotas restantes, tráfego incorporado e ETA" status={status.data?.tomtom_routing||'checking'}/><ServiceCard icon={Map} name="TomTom Traffic Incidents" description="Acidentes, obras, interdições e lentidão" status={status.data?.tomtom_traffic_incidents||'checking'}/><ServiceCard icon={Map} name="TomTom Traffic Flow" description="Velocidade e fluxo do segmento viário" status={status.data?.tomtom_traffic_flow||'checking'}/><ServiceCard icon={CloudSun} name="OpenWeather" description="Previsão distribuída ao longo das rotas" status={status.data?.openweather||(status.isError?'unavailable':'checking')}/><ServiceCard icon={Radio} name="Trafegus" description={status.data?.trafegus_detail?.message||'Fonte principal das viagens e posições'} status={status.data?.trafegus||(status.isError?'unavailable':'checking')}/></section><section className="panel environment"><div><span className="eyebrow">Configuração</span><h2>Ambiente atual</h2></div><dl><div><dt>API</dt><dd>{import.meta.env.VITE_API_URL||'http://localhost:8000'}</dd></div><div><dt>WebSocket fallback</dt><dd>{import.meta.env.VITE_WS_URL||'Automático pela URL da API'}</dd></div><div><dt>Rastreamento principal</dt><dd>Trafegus · cache e modo degradado ativos</dd></div></dl></section></div>
+}
+
+function ServiceCard({icon:Icon,name,description,status}:{icon:typeof Server;name:string;description:string;status:string}) {
+  const connected=['connected','ok','configured','operational'].includes(status);const partial=['partial','degraded'].includes(status);const checking=['checking','connecting'].includes(status)
+  return <article className="panel service-card"><div className={`service-card__icon ${connected?'service-card__icon--up':checking||partial?'':'service-card__icon--down'}`}><Icon size={23}/></div><div><h3>{name}</h3><p>{description}</p></div><span className={`service-state ${connected?'service-state--up':checking||partial?'service-state--checking':'service-state--down'}`}><i/>{connected?'Operacional':partial?'Degradado':checking?'Verificando':'Indisponível'}</span></article>
+}
