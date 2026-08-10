@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+import os
+import tempfile
+from pathlib import Path
+
+# Configure a disposable database before importing application singletons.
+TEST_DATABASE_ROOT = Path(tempfile.mkdtemp(prefix="seven-cargo-tests-"))
+os.environ["OPERATIONS_DATABASE_PATH"] = str(TEST_DATABASE_ROOT / "operations.db")
+os.environ["FLEET_COLLECTOR_ENABLED"] = "false"
+os.environ["TRAFFIC_COLLECTOR_ENABLED"] = "false"
+os.environ["OPERATIONS_BACKUP_ENABLED"] = "false"
+
 import pytest
 
 from app.core.security import Permission, Principal, Role, require_permission
