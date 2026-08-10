@@ -100,6 +100,7 @@ class Settings(BaseSettings):
     operations_backup_weekly_retention: int = 4
     operations_backup_monthly_retention: int = 6
     automatic_reports_directory: Path = PROJECT_ROOT / "data" / "reports" / "automatic"
+    driver_evaluation_due_hours: int = 24
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,

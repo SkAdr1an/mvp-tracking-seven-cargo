@@ -223,6 +223,45 @@ CREATE TABLE IF NOT EXISTS eta_history (
  evidence_json TEXT NOT NULL DEFAULT '{}', recorded_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_eta_history_trip_time
 ON eta_history(trip_key, recorded_at);
+CREATE TABLE IF NOT EXISTS driver_profiles (
+ id TEXT PRIMARY KEY, cpf TEXT UNIQUE, name TEXT NOT NULL, phone TEXT,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_profiles_name ON driver_profiles(name);
+CREATE TABLE IF NOT EXISTS driver_trip_history (
+ trip_key TEXT PRIMARY KEY REFERENCES operational_trips(trip_key),
+ driver_id TEXT NOT NULL REFERENCES driver_profiles(id), provider_trip_id TEXT,
+ plate TEXT NOT NULL, trailer_plate TEXT, route_id TEXT, route_name TEXT,
+ origin_name TEXT, destination_name TEXT, customer TEXT,
+ status TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+ source TEXT NOT NULL, source_updated_at TEXT NOT NULL,
+ automatic_punctuality TEXT NOT NULL DEFAULT 'UNAVAILABLE',
+ automatic_delay_minutes REAL, considered_punctuality TEXT,
+ closed INTEGER NOT NULL DEFAULT 0, consolidated_at TEXT,
+ consolidation_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_history_driver_date ON driver_trip_history(driver_id, finished_at DESC);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_history_status ON driver_trip_history(status, finished_at);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_history_route ON driver_trip_history(route_id);
+CREATE TABLE IF NOT EXISTS driver_evaluations (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL UNIQUE REFERENCES driver_trip_history(trip_key),
+ driver_id TEXT NOT NULL REFERENCES driver_profiles(id), communication TEXT NOT NULL,
+ procedures TEXT NOT NULL, tracking_collaboration TEXT NOT NULL, time_mark TEXT NOT NULL,
+ professional_behavior TEXT NOT NULL, recommendation TEXT NOT NULL,
+ internal_note TEXT, justification TEXT, responsible TEXT NOT NULL,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_evaluations_driver ON driver_evaluations(driver_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_evaluation_history (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id INTEGER NOT NULL REFERENCES driver_evaluations(id),
+ changed_by TEXT NOT NULL, changed_at TEXT NOT NULL, previous_json TEXT, current_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS punctuality_adjustments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),
+ original_value TEXT NOT NULL, considered_value TEXT NOT NULL, category TEXT NOT NULL,
+ reason TEXT NOT NULL, justification TEXT NOT NULL, evidence TEXT, responsible TEXT NOT NULL,
+ created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_punctuality_adjustments_trip ON punctuality_adjustments(trip_key, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_internal_notes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id TEXT NOT NULL REFERENCES driver_profiles(id),
+ note TEXT NOT NULL, responsible TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_notes_driver ON driver_internal_notes(driver_id, created_at DESC);
 """
 
 

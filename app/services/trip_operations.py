@@ -405,6 +405,8 @@ class TripOperationsService:
                 fields["destination_exit_count"] = 0
 
         result = self.repository.update_trip(key, **fields)
+        from app.services.driver_history import DriverHistoryService
+        DriverHistoryService(self.repository).sync_trip(key, source=update.source)
         from app.services.journey_observation import get_journey_observation_service
         get_journey_observation_service(self.repository).observe(key)
         if is_final_trip_state(result.get("state")):
@@ -466,6 +468,8 @@ class TripOperationsService:
         else:
             raise ValueError("Ação manual inválida")
         updated = self.repository.update_trip(trip_key, **fields)
+        from app.services.driver_history import DriverHistoryService
+        DriverHistoryService(self.repository).sync_trip(trip_key, source="operator")
         if is_final_trip_state(updated.get("state")):
             revoke_links_for_finished_trip(self.repository, trip_key)
         self.repository.add_event(
