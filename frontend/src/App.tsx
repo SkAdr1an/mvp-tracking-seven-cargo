@@ -14,6 +14,8 @@ import { UsersAdmin } from './pages/UsersAdmin'
 import { Audit } from './pages/Audit'
 import { SessionContext, hasPermission } from './permissions'
 import type { Driver, Page, PanelSession } from './types'
+import { DriverHistory } from './pages/DriverHistory'
+import { PendingEvaluations } from './pages/PendingEvaluations'
 import './mobile-shell.css'
 
 export default function App() {
@@ -69,6 +71,8 @@ function AuthenticatedApp({ session, onLogout }: { session: PanelSession; onLogo
         <ContentErrorBoundary resetKey={`${page}:${selectedId ?? ''}`} onOverview={() => { setSelectedId(undefined); setPage('overview') }}>
         {page === 'overview' && <Overview drivers={drivers} selected={selected} hiddenDriverIds={hiddenDriverIds} pinnedDriverId={pinnedDriverId} onSelect={(driver) => { setSelectedId(driver.id) }} onClear={()=>setSelectedId(undefined)} onOpenDrivers={() => setPage('drivers')} fleet={fleet} source={source} traffic={traffic} paths={paths} sites={sites} onTrafficChanged={refreshTraffic} />}
         {page === 'drivers' && <Drivers drivers={drivers} selected={selected} hiddenDriverIds={hiddenDriverIds} pinnedDriverId={pinnedDriverId} onSelect={selectDriver} onClear={()=>setSelectedId(undefined)} onHide={(id)=>{setHiddenDriverIds((value)=>[...new Set([...value,id])]);if(pinnedDriverId===id)setPinnedDriverId(undefined)}} onRestore={(id)=>setHiddenDriverIds((value)=>value.filter((item)=>item!==id))} onRestoreAll={()=>setHiddenDriverIds([])} onPin={(id)=>{setPinnedDriverId((value)=>value===id?undefined:id);setSelectedId(id)}} />}
+        {page === 'driver-history' && <DriverHistory />}
+        {page === 'pending-evaluations' && <PendingEvaluations />}
         {page === 'routes' && <Routes />}
         {page === 'trafegus' && <Trafegus />}
         {page === 'integrations' && <Integrations />}

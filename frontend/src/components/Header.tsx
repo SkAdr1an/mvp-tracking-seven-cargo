@@ -2,6 +2,8 @@ import { Bell, LogOut, Menu, RefreshCw } from 'lucide-react'
 import type { Page } from '../types'
 
 const titles: Record<Page, [string, string]> = {
+  'driver-history': ['Histórico de motoristas', 'Viagens consolidadas e desempenho operacional'],
+  'pending-evaluations': ['Avaliações pendentes', 'Análise pós-viagem com prazo operacional'],
   overview: ['Visão geral', 'Acompanhe sua operação em tempo real'],
   drivers: ['Motoristas', 'Localização e telemetria da equipe'],
   routes: ['Planejamento de rota', 'Previsão de distância, trânsito e chegada'],

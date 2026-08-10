@@ -1,4 +1,4 @@
-import type { AngelLiraAdminResponse, AngelLiraStationsResponse, AuditResponse, FleetSnapshot, IntegrationStatus, ManagedUser, OperationalObservation, OperationalSitesResponse, OperationalTrip, PanelSession, PublicLinkCreated, PublicLinkStatus, RoutePaths, RoutePreview, TrafegusResult, TrafficSnapshot } from './types'
+import type { AngelLiraAdminResponse, AngelLiraStationsResponse, AuditResponse, DriverHistorySummary, DriverHistoryTrip, DriverProfile, FleetSnapshot, IntegrationStatus, ManagedUser, OperationalObservation, OperationalSitesResponse, OperationalTrip, Paged, PanelSession, PendingEvaluation, PublicLinkCreated, PublicLinkStatus, RoutePaths, RoutePreview, TrafegusResult, TrafficSnapshot } from './types'
 
 const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '')
 // Keep development panel authentication same-origin so the Strict HttpOnly
@@ -153,6 +153,13 @@ export const api = {
   voidObservation: (id:string,reason:string) => panelRequest(`/operations/observations/${id}/void`,{method:'POST',body:JSON.stringify({reason})}),
   audit: (filters:Record<string,string>={}) => panelRequest<AuditResponse>(`/api/audit?${new URLSearchParams(filters)}`) as Promise<AuditResponse>,
   tripAudit: (tripKey:string) => panelRequest<AuditResponse>(`/operations/trips/${encodeURIComponent(tripKey)}/audit`) as Promise<AuditResponse>,
+  driverHistory: (search='') => panelRequest<Paged<DriverHistorySummary>>(`/api/driver-history/drivers?search=${encodeURIComponent(search)}`) as Promise<Paged<DriverHistorySummary>>,
+  driverProfile: (id:string) => panelRequest<DriverProfile>(`/api/driver-history/drivers/${encodeURIComponent(id)}`) as Promise<DriverProfile>,
+  driverTrips: (id:string,query='') => panelRequest<Paged<DriverHistoryTrip>>(`/api/driver-history/drivers/${encodeURIComponent(id)}/trips${query?`?${query}`:''}`) as Promise<Paged<DriverHistoryTrip>>,
+  pendingEvaluations: (query='') => panelRequest<Paged<PendingEvaluation>>(`/api/driver-history/pending-evaluations${query?`?${query}`:''}`) as Promise<Paged<PendingEvaluation>>,
+  evaluateTrip: (tripKey:string,input:Record<string,unknown>) => panelRequest(`/api/driver-history/trips/${encodeURIComponent(tripKey)}/evaluation`,{method:'POST',body:JSON.stringify(input)}),
+  adjustPunctuality: (tripKey:string,input:Record<string,unknown>) => panelRequest(`/api/driver-history/trips/${encodeURIComponent(tripKey)}/punctuality-adjustments`,{method:'POST',body:JSON.stringify(input)}),
+  driverReportUrl: (id:string,query='') => `${PANEL_API_URL}/api/driver-history/drivers/${encodeURIComponent(id)}/report.pdf${query?`?${query}`:''}`,
 }
 
 export function trackingSocketUrl(): string {
