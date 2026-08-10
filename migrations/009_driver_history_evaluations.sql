@@ -1,8 +1,8 @@
 -- Additive migration. It does not rewrite or delete operational data.
 -- The authoritative runtime schema is mirrored in app/storage/operations.py.
-CREATE TABLE IF NOT EXISTS driver_profiles (id TEXT PRIMARY KEY,cpf TEXT UNIQUE,name TEXT NOT NULL,phone TEXT,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS driver_profiles (id TEXT PRIMARY KEY,cpf TEXT UNIQUE,name TEXT NOT NULL,phone TEXT,identity_status TEXT NOT NULL DEFAULT 'PENDING',created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_driver_profiles_name ON driver_profiles(name);
-CREATE TABLE IF NOT EXISTS driver_trip_history (trip_key TEXT PRIMARY KEY REFERENCES operational_trips(trip_key),driver_id TEXT NOT NULL REFERENCES driver_profiles(id),provider_trip_id TEXT,plate TEXT NOT NULL,trailer_plate TEXT,route_id TEXT,route_name TEXT,origin_name TEXT,destination_name TEXT,customer TEXT,status TEXT NOT NULL,started_at TEXT,finished_at TEXT,source TEXT NOT NULL,source_updated_at TEXT NOT NULL,automatic_punctuality TEXT NOT NULL DEFAULT 'UNAVAILABLE',automatic_delay_minutes REAL,considered_punctuality TEXT,closed INTEGER NOT NULL DEFAULT 0,consolidated_at TEXT,consolidation_version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS driver_trip_history (trip_key TEXT PRIMARY KEY REFERENCES operational_trips(trip_key),driver_id TEXT NOT NULL REFERENCES driver_profiles(id),provider_trip_id TEXT,plate TEXT NOT NULL,trailer_plate TEXT,route_id TEXT,route_name TEXT,origin_name TEXT,destination_name TEXT,customer TEXT,evaluation_responsible TEXT,status TEXT NOT NULL,started_at TEXT,finished_at TEXT,source TEXT NOT NULL,source_updated_at TEXT NOT NULL,automatic_punctuality TEXT NOT NULL DEFAULT 'UNAVAILABLE',automatic_delay_minutes REAL,considered_punctuality TEXT,closed INTEGER NOT NULL DEFAULT 0,consolidated_at TEXT,consolidation_version INTEGER NOT NULL DEFAULT 1,created_at TEXT NOT NULL,updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_driver_trip_history_driver_date ON driver_trip_history(driver_id,finished_at DESC);
 CREATE INDEX IF NOT EXISTS idx_driver_trip_history_status ON driver_trip_history(status,finished_at);
 CREATE INDEX IF NOT EXISTS idx_driver_trip_history_route ON driver_trip_history(route_id);
@@ -13,3 +13,7 @@ CREATE TABLE IF NOT EXISTS punctuality_adjustments (id INTEGER PRIMARY KEY AUTOI
 CREATE INDEX IF NOT EXISTS idx_punctuality_adjustments_trip ON punctuality_adjustments(trip_key,created_at DESC);
 CREATE TABLE IF NOT EXISTS driver_internal_notes (id INTEGER PRIMARY KEY AUTOINCREMENT,driver_id TEXT NOT NULL REFERENCES driver_profiles(id),note TEXT NOT NULL,responsible TEXT NOT NULL,created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_driver_notes_driver ON driver_internal_notes(driver_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_identity_links (id INTEGER PRIMARY KEY AUTOINCREMENT,trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),previous_driver_id TEXT,new_driver_id TEXT NOT NULL REFERENCES driver_profiles(id),source TEXT NOT NULL,justification TEXT NOT NULL,responsible TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_identity_links_trip ON driver_identity_links(trip_key,created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_trip_history_changes (id INTEGER PRIMARY KEY AUTOINCREMENT,trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),field_name TEXT NOT NULL,previous_value TEXT,new_value TEXT,responsible TEXT NOT NULL,justification TEXT NOT NULL,created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_changes_trip ON driver_trip_history_changes(trip_key,created_at DESC);

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import hashlib
 import html
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from app.storage.operations import OperationsRepository
+from app.storage.feature_migrations import migration_009_pending
 
 
 FINAL_STATES = {"FINALIZADA_NO_SISTEMA", "RETORNO_CONCLUIDO"}
@@ -18,16 +19,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _driver_id(name: str) -> str:
-    normalized = re.sub(r"\s+", " ", name.strip().casefold())
-    return "drv_" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:20]
-
-
 class DriverHistoryService:
     """Internal, idempotent history. Reads never call Trafegus or another provider."""
 
     def __init__(self, repository: OperationsRepository) -> None:
         self.repository = repository
+
+    def available(self) -> bool:
+        return not migration_009_pending(self.repository.database_path)
 
     def backfill_internal_trips(self) -> int:
         """Idempotently imports old local trips; it never reaches an external integration."""
@@ -38,22 +37,25 @@ class DriverHistoryService:
         return count
 
     def sync_trip(self, trip_key: str, *, source: str = "internal") -> dict[str, Any] | None:
+        if not self.available():
+            return None
         trip = self.repository.trip(trip_key)
         if not trip or not (trip.get("current_driver") or "").strip():
             return None
-        name = trip["current_driver"].strip()
-        driver_id, now = _driver_id(name), _now()
+        name, now = trip["current_driver"].strip(), _now()
         route = self.repository.route(trip["route_id"]) if trip.get("route_id") else None
         diagnostic = self.repository.diagnostic(trip_key)
         delay = diagnostic.get("commitment_delta_minutes") if diagnostic else None
         punctuality = "UNAVAILABLE" if delay is None else ("LATE" if delay > 0 else "ON_TIME")
         closed = int(trip.get("state") in FINAL_STATES)
         with self.repository._lock, self.repository.connect() as connection:
-            connection.execute(
-                """INSERT INTO driver_profiles(id,name,created_at,updated_at) VALUES(?,?,?,?)
-                   ON CONFLICT(id) DO UPDATE SET name=excluded.name,updated_at=excluded.updated_at""",
-                (driver_id, name, now, now),
-            )
+            existing = connection.execute("SELECT driver_id FROM driver_trip_history WHERE trip_key=?", (trip_key,)).fetchone()
+            driver_id = existing["driver_id"] if existing else "drv_" + uuid.uuid4().hex
+            if not existing:
+                connection.execute(
+                    "INSERT INTO driver_profiles(id,name,identity_status,created_at,updated_at) VALUES(?,?,?,?,?)",
+                    (driver_id, name, "PENDING", now, now),
+                )
             connection.execute(
                 """INSERT INTO driver_trip_history(
                    trip_key,driver_id,provider_trip_id,plate,trailer_plate,route_id,route_name,
@@ -90,11 +92,11 @@ class DriverHistoryService:
             if clean_cpf and len(clean_cpf) != 11:
                 raise ValueError("CPF deve conter 11 dígitos")
             connection.execute(
-                "UPDATE driver_profiles SET cpf=?,phone=?,name=?,updated_at=? WHERE id=?",
-                (clean_cpf, (phone or "").strip() or None, (name or current["name"]).strip(), _now(), driver_id),
+                "UPDATE driver_profiles SET cpf=?,phone=?,name=?,identity_status=?,updated_at=? WHERE id=?",
+                (clean_cpf, (phone or "").strip() or None, (name or current["name"]).strip(), "VERIFIED" if clean_cpf else "PENDING", _now(), driver_id),
             )
             row = connection.execute("SELECT * FROM driver_profiles WHERE id=?", (driver_id,)).fetchone()
-        return dict(row)
+        return self._safe_profile(dict(row))
 
     def drivers(self, *, search: str = "", page: int = 1, page_size: int = 25) -> dict[str, Any]:
         term = f"%{search.strip()}%"
@@ -114,7 +116,7 @@ class DriverHistoryService:
                 GROUP BY d.id ORDER BY last_trip_at DESC,d.name LIMIT ? OFFSET ?""",
                 (*params, page_size, (page - 1) * page_size),
             ).fetchall()
-        return {"items": [dict(row) for row in rows], "page": page, "page_size": page_size, "total": total}
+        return {"items": [self._safe_profile(dict(row)) for row in rows], "page": page, "page_size": page_size, "total": total}
 
     def profile(self, driver_id_or_cpf: str) -> dict[str, Any]:
         value = re.sub(r"\D", "", driver_id_or_cpf) if not driver_id_or_cpf.startswith("drv_") else driver_id_or_cpf
@@ -137,7 +139,7 @@ class DriverHistoryService:
             evaluations = connection.execute("SELECT * FROM driver_evaluations WHERE driver_id=? ORDER BY created_at DESC", (driver_id,)).fetchall()
             notes = connection.execute("SELECT * FROM driver_internal_notes WHERE driver_id=? ORDER BY created_at DESC", (driver_id,)).fetchall()
         total = int(totals["total_trips"] or 0)
-        result = dict(driver)
+        result = self._safe_profile(dict(driver))
         result.update(dict(totals))
         result["automatic_punctuality_percent"] = round(100 * int(totals["automatic_on_time"] or 0) / total, 1) if total else None
         result["considered_punctuality_percent"] = round(100 * int(totals["considered_on_time"] or 0) / total, 1) if total else None
@@ -146,6 +148,54 @@ class DriverHistoryService:
         result["evaluations"] = [dict(row) for row in evaluations]
         result["notes"] = [dict(row) for row in notes]
         return result
+
+    @staticmethod
+    def _safe_profile(value: dict[str, Any]) -> dict[str, Any]:
+        cpf = value.pop("cpf", None)
+        value["cpf_masked"] = f"***.***.***-{cpf[-2:]}" if cpf else None
+        return value
+
+    def link_identity(self, trip_key: str, *, target_driver_id: str | None, cpf: str | None,
+                      name: str, source: str, justification: str, responsible: str) -> dict[str, Any]:
+        clean_cpf = re.sub(r"\D", "", cpf or "") or None
+        if clean_cpf and len(clean_cpf) != 11: raise ValueError("CPF deve conter 11 dígitos")
+        if len(justification.strip()) < 5: raise ValueError("Justificativa é obrigatória")
+        now = _now()
+        with self.repository._lock, self.repository.connect() as connection:
+            trip = connection.execute("SELECT * FROM driver_trip_history WHERE trip_key=?", (trip_key,)).fetchone()
+            if not trip: raise KeyError(trip_key)
+            previous = trip["driver_id"]
+            target = None
+            if target_driver_id:
+                target = connection.execute("SELECT * FROM driver_profiles WHERE id=?", (target_driver_id,)).fetchone()
+            elif clean_cpf:
+                target = connection.execute("SELECT * FROM driver_profiles WHERE cpf=?", (clean_cpf,)).fetchone()
+            if target:
+                new_id = target["id"]
+                if clean_cpf and target["cpf"] != clean_cpf: raise ValueError("CPF já vinculado a outra identidade")
+                connection.execute("UPDATE driver_profiles SET name=?,phone=phone,identity_status='VERIFIED',updated_at=? WHERE id=?", (name.strip(), now, new_id))
+            else:
+                new_id = "drv_" + uuid.uuid4().hex
+                connection.execute("INSERT INTO driver_profiles(id,cpf,name,identity_status,created_at,updated_at) VALUES(?,?,?,?,?,?)", (new_id, clean_cpf, name.strip(), "VERIFIED" if clean_cpf else "PENDING", now, now))
+            connection.execute("UPDATE driver_trip_history SET driver_id=?,updated_at=? WHERE trip_key=?", (new_id, now, trip_key))
+            connection.execute("INSERT INTO driver_identity_links(trip_key,previous_driver_id,new_driver_id,source,justification,responsible,created_at) VALUES(?,?,?,?,?,?,?)", (trip_key, previous, new_id, source, justification.strip(), responsible, now))
+        return self.profile(new_id)
+
+    def correct_trip_metadata(self, trip_key: str, *, customer: str | None,
+                              evaluation_responsible: str | None, justification: str, responsible: str) -> dict[str, Any]:
+        if len(justification.strip()) < 5: raise ValueError("Justificativa é obrigatória")
+        now = _now()
+        updates = {"customer": (customer or "").strip() or None,
+                   "evaluation_responsible": (evaluation_responsible or "").strip() or None}
+        with self.repository._lock, self.repository.connect() as connection:
+            trip = connection.execute("SELECT * FROM driver_trip_history WHERE trip_key=?", (trip_key,)).fetchone()
+            if not trip: raise KeyError(trip_key)
+            for field, value in updates.items():
+                if trip[field] != value:
+                    connection.execute("INSERT INTO driver_trip_history_changes(trip_key,field_name,previous_value,new_value,responsible,justification,created_at) VALUES(?,?,?,?,?,?,?)", (trip_key, field, trip[field], value, responsible, justification.strip(), now))
+            connection.execute("UPDATE driver_trip_history SET customer=?,evaluation_responsible=?,updated_at=? WHERE trip_key=?", (updates["customer"], updates["evaluation_responsible"], now, trip_key))
+            row = connection.execute("SELECT * FROM driver_trip_history WHERE trip_key=?", (trip_key,)).fetchone()
+        return dict(row)
 
     def trips(self, driver_id: str, *, start: str | None = None, end: str | None = None,
               route: str | None = None, customer: str | None = None, status: str | None = None,
@@ -172,14 +222,13 @@ class DriverHistoryService:
         clauses, params = ["h.closed=1", "e.id IS NULL"], []
         for condition, value in (("h.finished_at>=?", start), ("h.finished_at<=?", end), ("h.customer=?", customer), ("h.route_id=?", route)):
             if value: clauses.append(condition); params.append(value)
-        # There is no responsible person before an evaluation; this filter intentionally returns none.
-        if responsible: clauses.append("0=1")
+        if responsible: clauses.append("h.evaluation_responsible=?"); params.append(responsible)
         if overdue is not None: clauses.append("((julianday('now')-julianday(h.finished_at))*24>=?)" if overdue else "((julianday('now')-julianday(h.finished_at))*24<?)"); params.append(overdue_hours)
         where = " AND ".join(clauses)
         with self.repository.connect() as connection:
             total = connection.execute(f"SELECT COUNT(*) FROM driver_trip_history h LEFT JOIN driver_evaluations e ON e.trip_key=h.trip_key WHERE {where}", params).fetchone()[0]
             rows = connection.execute(
-                f"""SELECT h.*,d.name driver_name,NULL responsible,
+                f"""SELECT h.*,d.name driver_name,COALESCE(h.evaluation_responsible,'Não informado') responsible,
                 CAST(MAX(0,(julianday('now')-julianday(h.finished_at))*24) AS INTEGER) pending_hours,
                 CASE WHEN (julianday('now')-julianday(h.finished_at))*24>=? THEN 'OVERDUE' ELSE 'PENDING' END situation
                 FROM driver_trip_history h JOIN driver_profiles d ON d.id=h.driver_id
