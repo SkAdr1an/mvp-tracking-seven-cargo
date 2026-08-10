@@ -35,6 +35,7 @@ function AuthenticatedApp({ session, onLogout }: { session: PanelSession; onLogo
   const [page, setPage] = useState<Page>('overview')
   const [menuOpen, setMenuOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string>()
+  const [adminApiConnection,setAdminApiConnection]=useState<'connecting'|'connected'|'disconnected'>('connecting')
   const [hiddenDriverIds,setHiddenDriverIds]=useState<string[]>(()=>stored('seven-hidden-drivers',[]))
   const [pinnedDriverId,setPinnedDriverId]=useState<string|undefined>(()=>stored('seven-pinned-driver',undefined))
   const [forbidden,setForbidden]=useState('')
@@ -65,14 +66,14 @@ function AuthenticatedApp({ session, onLogout }: { session: PanelSession; onLogo
     <Sidebar page={page} onChange={setPage} open={menuOpen} onClose={() => setMenuOpen(false)} />
     {menuOpen && <button className="sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="Fechar menu" />}
     <main className="main-content">
-      <Header page={page} connection={connection} menuOpen={menuOpen} attentionCount={fleet?.counts.attention ?? 0} criticalCount={fleet?.counts.critical ?? 0} username={session.username} role={session.role} onLogout={onLogout} onMenu={() => setMenuOpen(true)} onReconnect={reconnect} />
+      <Header page={page} connection={page==='driver-history'||page==='pending-evaluations'?adminApiConnection:connection} apiMode={page==='driver-history'||page==='pending-evaluations'} menuOpen={menuOpen} attentionCount={fleet?.counts.attention ?? 0} criticalCount={fleet?.counts.critical ?? 0} username={session.username} role={session.role} onLogout={onLogout} onMenu={() => setMenuOpen(true)} onReconnect={reconnect} />
       <div className="page-content">
         {forbidden&&<div className="form-error" role="alert" onClick={()=>setForbidden('')}>{forbidden}</div>}
         <ContentErrorBoundary resetKey={`${page}:${selectedId ?? ''}`} onOverview={() => { setSelectedId(undefined); setPage('overview') }}>
         {page === 'overview' && <Overview drivers={drivers} selected={selected} hiddenDriverIds={hiddenDriverIds} pinnedDriverId={pinnedDriverId} onSelect={(driver) => { setSelectedId(driver.id) }} onClear={()=>setSelectedId(undefined)} onOpenDrivers={() => setPage('drivers')} fleet={fleet} source={source} traffic={traffic} paths={paths} sites={sites} onTrafficChanged={refreshTraffic} />}
         {page === 'drivers' && <Drivers drivers={drivers} selected={selected} hiddenDriverIds={hiddenDriverIds} pinnedDriverId={pinnedDriverId} onSelect={selectDriver} onClear={()=>setSelectedId(undefined)} onHide={(id)=>{setHiddenDriverIds((value)=>[...new Set([...value,id])]);if(pinnedDriverId===id)setPinnedDriverId(undefined)}} onRestore={(id)=>setHiddenDriverIds((value)=>value.filter((item)=>item!==id))} onRestoreAll={()=>setHiddenDriverIds([])} onPin={(id)=>{setPinnedDriverId((value)=>value===id?undefined:id);setSelectedId(id)}} />}
-        {page === 'driver-history' && <DriverHistory />}
-        {page === 'pending-evaluations' && <PendingEvaluations />}
+        {page === 'driver-history' && <DriverHistory onConnection={setAdminApiConnection} />}
+        {page === 'pending-evaluations' && <PendingEvaluations onConnection={setAdminApiConnection} />}
         {page === 'routes' && <Routes />}
         {page === 'trafegus' && <Trafegus />}
         {page === 'integrations' && <Integrations />}

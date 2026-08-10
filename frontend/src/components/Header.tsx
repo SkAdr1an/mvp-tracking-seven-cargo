@@ -14,9 +14,10 @@ const titles: Record<Page, [string, string]> = {
   audit: ['Auditoria', 'Rastreabilidade administrativa e operacional'],
 }
 
-export function Header({ page, connection, menuOpen, attentionCount, criticalCount, username, role, onLogout, onMenu, onReconnect }: {
+export function Header({ page, connection, apiMode=false, menuOpen, attentionCount, criticalCount, username, role, onLogout, onMenu, onReconnect }: {
   page: Page
   connection: 'connecting' | 'connected' | 'disconnected'
+  apiMode?: boolean
   menuOpen: boolean
   attentionCount: number
   criticalCount: number
@@ -38,7 +39,7 @@ export function Header({ page, connection, menuOpen, attentionCount, criticalCou
         </div>
         <button className={`connection connection--${connection}`} onClick={connection === 'disconnected' ? onReconnect : undefined}>
           <span className="connection__dot" />
-          {connection === 'connected' ? 'Tempo real' : connection === 'connecting' ? 'Conectando' : 'Reconectar'}
+          {connection === 'connected' ? (apiMode?'Conectado':'Tempo real') : connection === 'connecting' ? 'Conectando' : (apiMode?'API indisponível':'Reconectar')}
           {connection === 'disconnected' && <RefreshCw size={14} />}
         </button>
         <button className="icon-button" aria-label="Notificações"><Bell size={20} /><span className="notification-dot" /></button>
