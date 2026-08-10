@@ -58,6 +58,14 @@ Crie `.env` a partir de `.env.example`. As variáveis operacionais principais s�
 
 Credenciais, tokens, documentos e respostas brutas não devem ser versionados.
 
+## Histórico e avaliação de motoristas
+
+As viagens com motorista identificado são sincronizadas de forma idempotente no banco interno durante o acompanhamento. Na finalização, o registro é fechado e passa a alimentar o histórico individual e a fila de avaliações pendentes sem consultar novamente o Trafegus. Registros antigos locais são consolidados sob demanda; registros incompletos permanecem disponíveis sem dados inventados.
+
+As consultas administrativas usam ID interno ou CPF como identidade principal, aceitam pesquisa complementar por nome, telefone e placa, filtros e paginação. Avaliações, observações internas e ajustes de pontualidade exigem sessão do painel e preservam auditoria. A pontualidade calculada nunca é sobrescrita pela pontualidade considerada.
+
+O PDF é gerado sob demanda a partir do histórico interno e não é armazenado no banco. Observações internas são omitidas por padrão. O prazo da fila é configurado por `DRIVER_EVALUATION_DUE_HOURS` (24 horas por padrão).
+
 ## Reconhecimento de retorno
 
 Uma ida finalizada não permanece ativa apenas porque o rastreador continua
