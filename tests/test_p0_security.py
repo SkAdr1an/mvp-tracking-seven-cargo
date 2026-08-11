@@ -68,7 +68,9 @@ def test_expired_session_is_rejected(monkeypatch):
 
 
 def test_authenticated_unapproved_role_receives_403(monkeypatch):
-    configure_admin(monkeypatch); real_security_boundary()
+    settings = configure_admin(monkeypatch); real_security_boundary()
+    monkeypatch.setattr(settings, "panel_admin_username", "read-user")
+    monkeypatch.setattr(settings, "panel_admin_role", Role.READ_ONLY.value)
     token, _ = create_panel_session(Principal("read-user", Role.READ_ONLY))
     client = TestClient(main_module.app); client.cookies.set(security.PANEL_SESSION_COOKIE, token)
     assert client.get("/operations/routes").status_code == 403

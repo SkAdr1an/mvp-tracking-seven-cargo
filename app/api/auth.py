@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
@@ -11,6 +11,7 @@ from app.core.security import (
     Principal,
     configured_user,
     create_panel_session,
+    revoke_panel_session,
     require_panel_session,
     verify_password,
 )
@@ -75,7 +76,12 @@ async def authenticated_user(principal: Principal = Depends(require_panel_sessio
 
 
 @router.delete("/session", status_code=204)
-async def logout(response: Response, _principal: Principal = Depends(require_panel_session)) -> Response:
+async def logout(
+    response: Response,
+    _principal: Principal = Depends(require_panel_session),
+    session_token: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
+) -> Response:
+    revoke_panel_session(session_token)
     response.delete_cookie(PANEL_SESSION_COOKIE, path="/")
     response.status_code = 204
     return response

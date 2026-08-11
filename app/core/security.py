@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import json
 import secrets
+import sqlite3
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -113,18 +114,41 @@ def configured_user(username: str) -> tuple[Principal, str] | None:
     return None
 
 
+def _user_fingerprint(principal: Principal, password_hash: str) -> str:
+    value = f"{principal.username}\0{principal.role.value}\0{password_hash}"
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 def create_panel_session(principal: Principal) -> tuple[str, int]:
     settings = get_settings()
     if len(settings.panel_session_secret) < 32:
         raise RuntimeError("Panel session secret is not configured")
+    configured = configured_user(principal.username)
+    if configured is None or configured[0].role != principal.role:
+        raise RuntimeError("Panel user is not active")
     issued_at = int(time.time())
     expires_at = issued_at + max(settings.panel_session_ttl_hours, 1) * 3600
-    payload = _encode(json.dumps(
-        {"sub": principal.username, "role": principal.role.value, "iat": issued_at, "exp": expires_at},
-        separators=(",", ":"), sort_keys=True,
-    ).encode("utf-8"))
-    signature = _encode(hmac.new(settings.panel_session_secret.encode(), payload.encode("ascii"), hashlib.sha256).digest())
-    return f"{payload}.{signature}", expires_at
+    token = secrets.token_urlsafe(48)
+    token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+    session_id = secrets.token_hex(16)
+    with sqlite3.connect(settings.operations_database_path) as connection:
+        connection.execute("DELETE FROM panel_sessions WHERE expires_at <= ?", (issued_at,))
+        connection.execute(
+            """INSERT INTO panel_sessions(
+                   id, token_hash, username, role, user_fingerprint,
+                   created_at, expires_at, revoked_at
+               ) VALUES(?,?,?,?,?,?,?,NULL)""",
+            (
+                session_id,
+                token_hash,
+                principal.username,
+                principal.role.value,
+                _user_fingerprint(configured[0], configured[1]),
+                issued_at,
+                expires_at,
+            ),
+        )
+    return token, expires_at
 
 
 def validate_panel_session(token: str | None) -> Principal | None:
@@ -132,18 +156,42 @@ def validate_panel_session(token: str | None) -> Principal | None:
     if not token or len(settings.panel_session_secret) < 32:
         return None
     try:
-        payload, signature = token.split(".", 1)
-        expected = _encode(hmac.new(settings.panel_session_secret.encode(), payload.encode("ascii"), hashlib.sha256).digest())
-        if not hmac.compare_digest(signature, expected):
-            return None
-        data = json.loads(_decode(payload))
         now = int(time.time())
-        principal = Principal(str(data["sub"]), Role(data["role"]))
-        if not principal.username or int(data["iat"]) <= 0 or int(data["iat"]) > now + 60 or int(data["exp"]) <= now:
+        token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+        with sqlite3.connect(settings.operations_database_path) as connection:
+            row = connection.execute(
+                """SELECT username, role, user_fingerprint, expires_at, revoked_at
+                   FROM panel_sessions WHERE token_hash=?""",
+                (token_hash,),
+            ).fetchone()
+        if not row or row[4] is not None or int(row[3]) <= now:
+            return None
+        configured = configured_user(str(row[0]))
+        if configured is None:
+            return None
+        principal, password_hash = configured
+        if principal.role.value != str(row[1]) or not hmac.compare_digest(
+            _user_fingerprint(principal, password_hash), str(row[2])
+        ):
             return None
         return principal
-    except (ValueError, TypeError, KeyError, json.JSONDecodeError):
+    except (ValueError, TypeError, sqlite3.Error, UnicodeEncodeError):
         return None
+
+
+def revoke_panel_session(token: str | None) -> None:
+    if not token:
+        return
+    settings = get_settings()
+    try:
+        token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
+        with sqlite3.connect(settings.operations_database_path) as connection:
+            connection.execute(
+                "UPDATE panel_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
+                (int(time.time()), token_hash),
+            )
+    except (sqlite3.Error, UnicodeEncodeError) as exc:
+        raise RuntimeError("Unable to revoke panel session") from exc
 
 
 def require_panel_session(session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE)) -> Principal:
