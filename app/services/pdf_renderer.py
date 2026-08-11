@@ -46,6 +46,7 @@ def render_html_to_pdf(
             [
                 str(browser),
                 "--headless=new",
+                "--no-sandbox",
                 "--disable-gpu",
                 "--no-pdf-header-footer",
                 "--run-all-compositor-stages-before-draw",
