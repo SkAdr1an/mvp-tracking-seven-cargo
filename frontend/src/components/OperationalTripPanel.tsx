@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { AlertTriangle, CheckCircle2, Clock3, History, MapPinned, Pencil, RotateCcw, Route } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Clock3, Download, History, MapPinned, Pencil, RotateCcw, Route } from 'lucide-react'
 import { api } from '../api'
 import type { OperationalState, OperationalTrip } from '../types'
 import { OperationalActionDialog, type OperationalDialogField } from './OperationalActionDialog'
@@ -23,6 +23,8 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [feedback, setFeedback] = useState('')
+  const [reportPending, setReportPending] = useState(false)
+  const [reportError, setReportError] = useState('')
   const detail = useQuery({
     queryKey: ['operational-trip', initial.trip_key],
     queryFn: () => api.operationalTrip(initial.trip_key),
@@ -58,6 +60,13 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
       justification: dialog.decision === 'LATER' ? 'Decisão adiada para verificação operacional' : values.justification,
     })
   }
+  const downloadReport = async () => {
+    if (reportPending) return
+    setReportPending(true); setReportError('')
+    try { await api.downloadTripReport(trip.trip_key) }
+    catch (error) { setReportError(error instanceof Error ? error.message : 'Não foi possível gerar o relatório.') }
+    finally { setReportPending(false) }
+  }
 
   return <div className="operational-card">
     <div className="operational-card__head"><div><span className="eyebrow">Controle operacional local</span><h3>{labels[trip.state]}</h3></div><em className={`operation-state operation-state--${trip.state.toLowerCase()}`}>{labels[trip.state]}</em></div>
@@ -73,13 +82,14 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
       <OperationValue icon={CheckCircle2} label="Finalização" value={trip.finished_at ? `${dateLabel(trip.finished_at)} · ${trip.finish_type === 'automatic' ? 'automática' : 'manual'}` : 'Pendente'} />
     </div>
     <div className="operation-actions">
+      <button onClick={downloadReport} disabled={reportPending}><Download size={14} />{reportPending ? 'Gerando PDF...' : 'Baixar relatório PDF'}</button>
       <button onClick={()=>open({kind:'correct'})} disabled={action.isPending}><Pencil size={14} />Corrigir horários</button>
       {trip.state !== 'FINALIZADA_NO_SISTEMA' && trip.state !== 'RETORNO_CONCLUIDO' && <button onClick={() => open({kind:'action',action:'finalize'})} disabled={action.isPending}><CheckCircle2 size={14} />Finalizar</button>}
       {trip.state === 'FINALIZADA_NO_SISTEMA' && <button onClick={() => open({kind:'action',action:'reopen'})} disabled={action.isPending}><RotateCcw size={14} />Reabrir</button>}
       {(trip.state === 'NO_DESTINO' || trip.state === 'NA_ORIGEM') && <button onClick={() => open({kind:'action',action:'undo_detection'})} disabled={action.isPending}><RotateCcw size={14} />Desfazer detecção</button>}
     </div>
     <DriverPublicLink trip={trip} />
-    {(action.error || returnDecision.error) && <div className="form-error">{(action.error || returnDecision.error)?.message}</div>}
+    {(action.error || returnDecision.error || reportError) && <div className="form-error">{reportError || (action.error || returnDecision.error)?.message}</div>}
     {feedback && <div className="operation-feedback" role="status">{feedback}</div>}
     <div className="operation-history"><h3><History size={15} />Histórico</h3>{trip.events?.length ? trip.events.map((event) => <div key={event.id}><i /><span>{dateLabel(event.occurred_at)}</span><strong>{event.description}</strong><small>{event.source}{event.justification ? ` · ${event.justification}` : ''}</small></div>) : <p>Nenhum evento operacional registrado.</p>}</div>
     {dialog && <OperationalActionDialog {...dialogConfig(dialog)} context={<><strong>{trip.current_driver || 'Motorista não informado'}</strong><span>Viagem {trip.trip_key}</span><span>{trip.route?.origin_name || 'Origem não informada'} → {trip.route?.destination_name || 'Destino não informado'}</span></>} pending={action.isPending || returnDecision.isPending} error={(action.error || returnDecision.error)?.message} onCancel={()=>setDialog(null)} onConfirm={confirm}/>}

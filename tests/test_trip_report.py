@@ -5,10 +5,13 @@ from datetime import datetime, timezone
 from app.services.journey_observation import JourneyObservationService
 from app.services.trip_report import TripReportService
 from app.storage.operations import OperationsRepository
+from app.storage.migrations import migrate_database
 
 
 def test_report_preserves_unavailable_delay_and_generates_unicode_html(tmp_path):
-    repository = OperationsRepository(tmp_path / "operations.db")
+    database = tmp_path / "operations.db"
+    migrate_database(database)
+    repository = OperationsRepository(database)
     repository.ensure_trip("trip-1", "ABC1D23", "1", None)
     JourneyObservationService(repository)
     now = datetime.now(timezone.utc).isoformat()
@@ -18,3 +21,36 @@ def test_report_preserves_unavailable_delay_and_generates_unicode_html(tmp_path)
     assert "Relatório automático" in html
     assert "Indisponível" in html
     assert result.evidence_level == "UNAVAILABLE"
+
+
+def test_report_endpoint_returns_pdf_without_internal_paths(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from app.core.security import Permission, require_panel_username, require_permission
+    from app.main import app
+    from app.services.trip_report import GeneratedReport, TripReportService
+
+    pdf = tmp_path / "private" / "report.pdf"
+    pdf.parent.mkdir()
+    pdf.write_bytes(b"%PDF-1.4\n%%EOF")
+    monkeypatch.setattr(
+        TripReportService,
+        "generate",
+        lambda self, trip_key: GeneratedReport(
+            html_path=str(tmp_path / "private" / "report.html"),
+            json_path=str(tmp_path / "private" / "evidence.json"),
+            pdf_path=str(pdf), generated_at="2026-08-11T00:00:00+00:00",
+            sha256="synthetic", evidence_level="CALCULATED",
+        ),
+    )
+    app.dependency_overrides[require_permission(Permission.OPERATIONAL_READ)] = lambda: None
+    app.dependency_overrides[require_panel_username] = lambda: "audit-admin"
+    try:
+        response = TestClient(app).post("/operations/trips/trip-1/report")
+    finally:
+        app.dependency_overrides.pop(require_permission(Permission.OPERATIONAL_READ), None)
+        app.dependency_overrides.pop(require_panel_username, None)
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/pdf")
+    assert "relatorio-viagem-trip-1.pdf" in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF-")
+    assert str(tmp_path).encode() not in response.content

@@ -47,6 +47,37 @@ async function panelRequest<T>(path: string, options?: RequestInit, allowNotFoun
   return response.json() as Promise<T>
 }
 
+async function downloadPanelPdf(path: string): Promise<void> {
+  const response = await fetch(`${PANEL_API_URL}${path}`, {
+    method: 'POST', credentials: 'include', headers: { Accept: 'application/pdf' },
+  })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    if (response.status === 401) {
+      window.dispatchEvent(new CustomEvent(ADMIN_SESSION_EXPIRED_EVENT, {
+        detail: { returnPath: `${window.location.pathname}${window.location.search}` },
+      }))
+    }
+    throw new Error(typeof payload?.detail === 'string' ? payload.detail : 'Não foi possível gerar o relatório.')
+  }
+  if (!response.headers.get('content-type')?.toLowerCase().startsWith('application/pdf')) {
+    throw new Error('O servidor não retornou um PDF válido.')
+  }
+  const blob = await response.blob()
+  const signature = new TextDecoder().decode(await blob.slice(0, 5).arrayBuffer())
+  if (signature !== '%PDF-') throw new Error('O servidor não retornou um PDF válido.')
+  const disposition = response.headers.get('content-disposition') || ''
+  const match = disposition.match(/filename\*?=(?:UTF-8''|["']?)([^"';]+)/i)
+  const filename = match ? decodeURIComponent(match[1].replace(/["']/g, '')) : 'relatorio-viagem.pdf'
+  const url = URL.createObjectURL(blob)
+  try {
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = filename.endsWith('.pdf') ? filename : `${filename}.pdf`
+    anchor.click()
+  } finally { URL.revokeObjectURL(url) }
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
   integrations: () => request<IntegrationStatus>('/integrations/status'),
@@ -60,6 +91,8 @@ export const api = {
     }),
   operationalTrip: (tripKey: string) =>
     request<OperationalTrip>(`/operations/trips/${encodeURIComponent(tripKey)}`),
+  downloadTripReport: (tripKey: string) =>
+    downloadPanelPdf(`/operations/trips/${encodeURIComponent(tripKey)}/report`),
   operationalAction: (tripKey: string, input: { action: 'finalize' | 'reopen' | 'undo_detection' | 'correct_times'; justification: string; operator?: string; corrections?: Record<string, string | null> }) =>
     panelRequest<OperationalTrip>(`/operations/trips/${encodeURIComponent(tripKey)}/actions`, {
       method: 'POST', body: JSON.stringify(input),

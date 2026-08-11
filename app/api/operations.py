@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
@@ -150,16 +151,28 @@ async def report_data(trip_key: str) -> dict[str, Any]:
 async def generate_report(
     trip_key: str,
     _operator: str = Depends(require_panel_username),
-) -> dict[str, Any]:
-    from dataclasses import asdict
+) -> FileResponse:
+    import re
+    from pathlib import Path
     from app.services.trip_report import TripReportService
     try:
         result = TripReportService(
             trip_operations_service.repository, get_settings().automatic_reports_directory
         ).generate(trip_key)
-        return asdict(result)
+        pdf_path = Path(result.pdf_path) if result.pdf_path else None
+        if not pdf_path or not pdf_path.is_file():
+            raise HTTPException(status_code=503, detail="Não foi possível gerar o PDF neste momento")
+        with pdf_path.open("rb") as generated_pdf:
+            if generated_pdf.read(5) != b"%PDF-":
+                raise HTTPException(status_code=503, detail="Não foi possível gerar o PDF neste momento")
+        safe_key = re.sub(r"[^A-Za-z0-9_-]+", "-", trip_key).strip("-")[:80] or "viagem"
+        return FileResponse(pdf_path, media_type="application/pdf", filename=f"relatorio-viagem-{safe_key}.pdf")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada") from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Não foi possível gerar o relatório neste momento") from exc
 
 
 @router.post("/trips/{trip_key}/actions")

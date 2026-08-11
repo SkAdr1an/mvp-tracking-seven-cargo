@@ -58,6 +58,7 @@ def test_consult_plate_authenticates_once_and_only_reads(monkeypatch) -> None:
         username="demo_user",
         password="demo_password",
         app_id="777",
+        document="00000000000000",
         base_url="https://example.test/ws_rest/public/api",
     )
 
