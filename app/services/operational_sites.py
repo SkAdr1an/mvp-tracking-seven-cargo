@@ -156,8 +156,6 @@ class OperationalSiteService:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = str(Path(database_path).resolve())
         self._lock = threading.RLock()
-        self.initialize()
-        self.upsert_authorized_sites()
 
     def connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path, timeout=10)

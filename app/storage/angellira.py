@@ -163,7 +163,6 @@ class AngelLiraRepository:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = str(database_path)
         self._lock = threading.RLock()
-        self.initialize()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -182,24 +181,6 @@ class AngelLiraRepository:
             raise
         finally:
             connection.close()
-
-    def initialize(self) -> None:
-        with self._lock, self.connect() as connection:
-            connection.executescript(SCHEMA)
-            columns = {
-                row["name"] for row in connection.execute(
-                    "PRAGMA table_info(angellira_stations)"
-                ).fetchall()
-            }
-            if "manual_review_required" not in columns:
-                connection.execute(
-                    "ALTER TABLE angellira_stations "
-                    "ADD COLUMN manual_review_required INTEGER NOT NULL DEFAULT 0"
-                )
-            if "possible_merge_group_id" not in columns:
-                connection.execute(
-                    "ALTER TABLE angellira_stations ADD COLUMN possible_merge_group_id TEXT"
-                )
 
     def dataset(self, dataset_id: str, source_version: str) -> dict[str, Any] | None:
         with self.connect() as connection:

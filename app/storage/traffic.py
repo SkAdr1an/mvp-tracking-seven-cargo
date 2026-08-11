@@ -40,21 +40,6 @@ def now_utc() -> str:
 class TrafficRepository:
     def __init__(self, operations: OperationsRepository) -> None:
         self.operations = operations
-        with operations.connect() as connection:
-            connection.executescript(TRAFFIC_SCHEMA)
-            columns = {row["name"] for row in connection.execute("PRAGMA table_info(traffic_incidents)")}
-            if "publicly_visible" not in columns:
-                connection.execute(
-                    "ALTER TABLE traffic_incidents ADD COLUMN publicly_visible INTEGER NOT NULL DEFAULT 0"
-                )
-            if "public_title" not in columns:
-                connection.execute("ALTER TABLE traffic_incidents ADD COLUMN public_title TEXT")
-            if "public_description" not in columns:
-                connection.execute("ALTER TABLE traffic_incidents ADD COLUMN public_description TEXT")
-            connection.execute(
-                """CREATE INDEX IF NOT EXISTS idx_incidents_public_route
-                   ON traffic_incidents(route_id,publicly_visible,status,expires_at)"""
-            )
 
     def save_snapshot(self, route_id: str, status: str, requests: int, count: int,
                       latency_ms: float | None = None, error_code: str | None = None,

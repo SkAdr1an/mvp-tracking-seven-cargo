@@ -185,12 +185,14 @@ def test_recognition_is_immediate_and_does_not_change_trip_or_route(tmp_path):
 def test_repeated_recognition_does_not_create_events_or_routes(tmp_path):
     registry = service(tmp_path)
     values = [trip()]
+    with registry.connect() as connection:
+        before_routes = connection.execute("SELECT COUNT(*) FROM route_configs").fetchone()[0]
+        before_events = connection.execute("SELECT COUNT(*) FROM operational_events").fetchone()[0]
     registry.recognize_trips(values, NOW)
     registry.recognize_trips(values, NOW)
     with registry.connect() as connection:
-        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        assert "route_configs" not in tables
-        assert "operational_events" not in tables
+        assert connection.execute("SELECT COUNT(*) FROM route_configs").fetchone()[0] == before_routes
+        assert connection.execute("SELECT COUNT(*) FROM operational_events").fetchone()[0] == before_events
         assert connection.execute("SELECT count(*) FROM vehicle_site_states").fetchone()[0] == 1
 
 

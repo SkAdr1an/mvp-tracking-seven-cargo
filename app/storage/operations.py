@@ -229,7 +229,6 @@ class OperationsRepository:
             raise ValueError("SQLite database path must be absolute")
         self.database_path = ":memory:" if str(database_path) == ":memory:" else str(path.resolve())
         self._lock = threading.RLock()
-        self.initialize()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -248,49 +247,6 @@ class OperationsRepository:
             raise
         finally:
             connection.close()
-
-    def initialize(self) -> None:
-        with self._lock, self.connect() as connection:
-            connection.executescript(SCHEMA)
-            columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(operational_diagnostics)").fetchall()
-            }
-            if "commitment_delta_minutes" not in columns:
-                connection.execute(
-                    "ALTER TABLE operational_diagnostics ADD COLUMN commitment_delta_minutes REAL"
-                )
-            route_columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(route_configs)").fetchall()
-            }
-            if "operational_duration_minutes" not in route_columns:
-                connection.execute("ALTER TABLE route_configs ADD COLUMN operational_duration_minutes INTEGER")
-            if "is_express" not in route_columns:
-                connection.execute("ALTER TABLE route_configs ADD COLUMN is_express INTEGER NOT NULL DEFAULT 0")
-            if "origin_site_id" not in route_columns:
-                connection.execute(
-                    "ALTER TABLE route_configs ADD COLUMN origin_site_id TEXT"
-                )
-            if "destination_site_id" not in route_columns:
-                connection.execute(
-                    "ALTER TABLE route_configs ADD COLUMN destination_site_id TEXT"
-                )
-            usage_columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(routing_api_usage)")
-            }
-            if "provider" not in usage_columns:
-                connection.execute(
-                    "ALTER TABLE routing_api_usage ADD COLUMN provider TEXT NOT NULL DEFAULT 'tomtom'"
-                )
-            geometry_columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(route_geometry_versions)")
-            }
-            if "provider" not in geometry_columns:
-                connection.execute("ALTER TABLE route_geometry_versions ADD COLUMN provider TEXT")
-            if "distance_m" not in geometry_columns:
-                connection.execute("ALTER TABLE route_geometry_versions ADD COLUMN distance_m REAL")
-            if "duration_seconds" not in geometry_columns:
-                connection.execute("ALTER TABLE route_geometry_versions ADD COLUMN duration_seconds REAL")
-            connection.execute("UPDATE route_configs SET origin_latitude=-19.9821111, origin_longitude=-44.2662371, destination_latitude=-8.207594, destination_longitude=-34.963157, destination_radius_m=1000, destination_exit_radius_m=1150, updated_at=? WHERE id='betim-jaboatao'", (utc_now(),))
 
     def upsert_route(self, route: dict[str, Any]) -> None:
         now = utc_now()

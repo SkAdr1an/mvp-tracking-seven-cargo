@@ -124,10 +124,6 @@ class TripOperationsService:
         self.repository = repository
         from app.services.return_tracking import ReturnTrackingService
         self.return_tracking = ReturnTrackingService(repository)
-        if self.repository.route(BETIM_JABOATAO_ROUTE["id"]) is None:
-            self.repository.upsert_route(BETIM_JABOATAO_ROUTE)
-        if self.repository.route(SAO_BERNARDO_CONTAGEM_ROUTE["id"]) is None:
-            self.repository.upsert_route(SAO_BERNARDO_CONTAGEM_ROUTE)
 
     def recognize_route(self, description: str | None, explicit_route_id: str | None = None) -> dict[str, Any]:
         if explicit_route_id:

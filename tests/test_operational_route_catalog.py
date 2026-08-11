@@ -96,6 +96,8 @@ async def test_failure_does_not_leave_incomplete_route(tmp_path):
     database = tmp_path / "operations.db"
     sites = OperationalSiteService(database)
     repository = OperationsRepository(database)
+    with repository.connect() as connection:
+        connection.execute("DELETE FROM route_configs WHERE id=?", (ROUTE_SPECS[0]["id"],))
     catalog = OperationalRouteCatalog(repository, sites)
 
     class Failure:

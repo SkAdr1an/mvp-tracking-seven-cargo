@@ -436,11 +436,11 @@ def test_public_places_use_only_sites_linked_to_authorized_trip_route(portal):
                latitude REAL NOT NULL,longitude REAL NOT NULL,active INTEGER NOT NULL DEFAULT 1)"""
         )
         connection.executemany(
-            "INSERT INTO operational_sites(id,name,operation,latitude,longitude) VALUES(?,?,?,?,?)",
+                "INSERT INTO operational_sites(id,name,operation,latitude,longitude,created_at,updated_at) VALUES(?,?,?,?,?,?,?)",
             [
-                ("site-origin", "SOC_MG_BETIM/MG", "test", -19.98, -44.26),
-                ("site-destination", "SoC_PE_JABOATAO DOS GUARARAPES/PE", "test", -8.20, -34.96),
-                ("site-other", "CD_SP_OUTRA_VIAGEM/SP", "test", -23.5, -46.6),
+                    ("site-origin", "SOC_MG_BETIM/MG", "test", -19.98, -44.26, now, now),
+                    ("site-destination", "SoC_PE_JABOATAO DOS GUARARAPES/PE", "test", -8.20, -34.96, now, now),
+                    ("site-other", "CD_SP_OUTRA_VIAGEM/SP", "test", -23.5, -46.6, now, now),
             ],
         )
         connection.execute(

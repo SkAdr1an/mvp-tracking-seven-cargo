@@ -29,6 +29,7 @@ from app.api.operational_sites import router as operational_sites_router
 from app.services.route_deviation import route_deviation_service
 from app.services.traffic_monitoring import traffic_monitoring_service
 from app.services.routing_provider import RoutingProviderService, RoutingProvidersFailed
+from app.storage.migrations import validate_database_schema
 
 
 logger = logging.getLogger(__name__)
@@ -98,6 +99,7 @@ async def _database_backup_collector() -> None:
 async def lifespan(_: FastAPI):
     global _collector_task, _traffic_collector_task, _route_geometry_task, _backup_task
     settings = get_settings()
+    validate_database_schema(settings.operations_database_path)
     settings.validate_public_trip_runtime()
     settings.validate_security_runtime()
     if settings.development:
