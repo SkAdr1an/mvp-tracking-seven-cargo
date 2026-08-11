@@ -15,6 +15,10 @@ from app.storage.angellira import AngelLiraRepository
 
 
 PACKAGE = Path("data/angellira/2026-07-23-v1")
+pytestmark = pytest.mark.skipif(
+    not (PACKAGE / "angellira_dataset_manifest.json").is_file(),
+    reason="authorized AngelLira source package is not present in this checkout",
+)
 
 
 @pytest.fixture

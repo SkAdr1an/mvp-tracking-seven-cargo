@@ -16,6 +16,10 @@ from app.storage.angellira import AngelLiraRepository
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DATASET_DIR = PROJECT_ROOT / "data" / "angellira" / "2026-07-23-v1"
 MANIFEST_PATH = DATASET_DIR / "angellira_dataset_manifest.json"
+pytestmark = pytest.mark.skipif(
+    not MANIFEST_PATH.is_file(),
+    reason="authorized AngelLira source package is not present in this checkout",
+)
 
 EXPECTED_STATION_COLUMNS = {
     "post_id",

@@ -11,6 +11,7 @@ from app.services.trip_operations import (
     TripOperationsService,
 )
 from app.storage.operations import OperationsRepository
+from app.core.security import hash_password
 from fastapi.testclient import TestClient
 from app import main as main_module
 from app.api import operations as operations_api
@@ -250,7 +251,7 @@ def test_operational_actions_require_panel_session_and_preserve_audit(tmp_path, 
     monkeypatch.setattr(operations_api, "trip_operations_service", service)
     settings = main_module.get_settings()
     monkeypatch.setattr(settings, "panel_admin_username", "operador")
-    monkeypatch.setattr(settings, "panel_admin_password", "senha-forte")
+    monkeypatch.setattr(settings, "panel_admin_password_hash", hash_password("senha-forte-123"))
     monkeypatch.setattr(settings, "panel_session_secret", "segredo-de-sessao-com-mais-de-32-bytes")
     client = TestClient(main_module.app)
     detail = client.get(f"/operations/trips/{key}")
@@ -270,7 +271,7 @@ def test_operational_actions_require_panel_session_and_preserve_audit(tmp_path, 
         json=payload,
     ).status_code == 401
     login = client.post(
-        "/api/auth/session", json={"username": "operador", "password": "senha-forte"},
+        "/api/auth/session", json={"username": "operador", "password": "senha-forte-123"},
     )
     assert login.status_code == 200
     assert "path=/" in login.headers["set-cookie"].lower()

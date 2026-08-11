@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.api.public_trip import get_public_trip_service
 from app.core.config import get_settings
+from app.core.security import hash_password
 from app.main import app
 from app.services.public_trip import PublicTripService
 from app.services.trip_operations import TripOperationsService
@@ -106,11 +107,11 @@ def test_authenticated_panel_session_can_administer_links(portal, monkeypatch):
     client, _, _ = portal
     settings = get_settings()
     monkeypatch.setattr(settings, "panel_admin_username", "operador")
-    monkeypatch.setattr(settings, "panel_admin_password", "senha-forte")
+    monkeypatch.setattr(settings, "panel_admin_password_hash", hash_password("senha-forte-123"))
     monkeypatch.setattr(settings, "panel_session_secret", "segredo-de-sessao-com-mais-de-32-bytes")
     login = client.post(
         "/api/auth/session",
-        json={"username": "operador", "password": "senha-forte"},
+        json={"username": "operador", "password": "senha-forte-123"},
     )
     assert login.status_code == 200
     assert login.json()["authenticated"] is True
@@ -130,13 +131,13 @@ def test_authenticated_user_endpoint_revalidates_cookie_session(portal, monkeypa
     client, _, _ = portal
     settings = get_settings()
     monkeypatch.setattr(settings, "panel_admin_username", "admin")
-    monkeypatch.setattr(settings, "panel_admin_password", "secret")
+    monkeypatch.setattr(settings, "panel_admin_password_hash", hash_password("secret-admin-123"))
     monkeypatch.setattr(settings, "panel_session_secret", "segredo-de-sessao-com-mais-de-32-bytes")
 
     assert client.get("/api/auth/me").status_code == 401
     login = client.post(
         "/api/auth/session",
-        json={"username": "admin", "password": "secret"},
+        json={"username": "admin", "password": "secret-admin-123"},
     )
     assert login.status_code == 200
     me = client.get("/api/auth/me")
@@ -151,11 +152,11 @@ def test_valid_panel_session_precedes_invalid_bearer_for_all_link_actions(portal
     client, _, _ = portal
     settings = get_settings()
     monkeypatch.setattr(settings, "panel_admin_username", "operador")
-    monkeypatch.setattr(settings, "panel_admin_password", "senha-forte")
+    monkeypatch.setattr(settings, "panel_admin_password_hash", hash_password("senha-forte-123"))
     monkeypatch.setattr(settings, "panel_session_secret", "segredo-de-sessao-com-mais-de-32-bytes")
     login = client.post(
         "/api/auth/session",
-        json={"username": "operador", "password": "senha-forte"},
+        json={"username": "operador", "password": "senha-forte-123"},
     )
     assert login.status_code == 200
     invalid_bearer = {"Authorization": "Bearer invalid-and-stale"}
@@ -179,7 +180,7 @@ def test_invalid_panel_credentials_do_not_create_session(portal, monkeypatch):
     client, _, _ = portal
     settings = get_settings()
     monkeypatch.setattr(settings, "panel_admin_username", "operador")
-    monkeypatch.setattr(settings, "panel_admin_password", "senha-forte")
+    monkeypatch.setattr(settings, "panel_admin_password_hash", hash_password("senha-forte-123"))
     monkeypatch.setattr(settings, "panel_session_secret", "segredo-de-sessao-com-mais-de-32-bytes")
     response = client.post(
         "/api/auth/session",
