@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hmac
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -9,8 +8,11 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.core.security import (
     PANEL_SESSION_COOKIE,
+    Principal,
+    configured_user,
     create_panel_session,
     require_panel_session,
+    verify_password,
 )
 
 
@@ -25,6 +27,7 @@ class LoginRequest(BaseModel):
 class SessionResponse(BaseModel):
     authenticated: bool = True
     username: str
+    role: str
     expires_at: datetime | None = None
 
 
@@ -32,16 +35,18 @@ class SessionResponse(BaseModel):
 async def login(payload: LoginRequest, response: Response) -> SessionResponse:
     settings = get_settings()
     if (
-        not settings.panel_admin_username
-        or not settings.panel_admin_password
+        (not settings.panel_users_file and (not settings.panel_admin_username or not settings.panel_admin_password_hash))
         or len(settings.panel_session_secret) < 32
     ):
         raise HTTPException(status_code=503, detail="Panel authentication is not configured")
-    valid_user = hmac.compare_digest(payload.username, settings.panel_admin_username)
-    valid_password = hmac.compare_digest(payload.password, settings.panel_admin_password)
+    configured = configured_user(payload.username)
+    admin = configured[0] if configured else None
+    valid_user = admin is not None
+    valid_password = verify_password(payload.password, configured[1] if configured else settings.panel_admin_password_hash)
     if not valid_user or not valid_password:
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    token, expires_at = create_panel_session(payload.username)
+    assert admin is not None
+    token, expires_at = create_panel_session(admin)
     response.set_cookie(
         PANEL_SESSION_COOKIE,
         token,
@@ -53,23 +58,24 @@ async def login(payload: LoginRequest, response: Response) -> SessionResponse:
     )
     return SessionResponse(
         username=payload.username,
+        role=admin.role.value,
         expires_at=datetime.fromtimestamp(expires_at, timezone.utc),
     )
 
 
 @router.get("/session", response_model=SessionResponse)
-async def session(username: str = Depends(require_panel_session)) -> SessionResponse:
-    return SessionResponse(username=username)
+async def session(principal: Principal = Depends(require_panel_session)) -> SessionResponse:
+    return SessionResponse(username=principal.username, role=principal.role.value)
 
 
 @router.get("/me", response_model=SessionResponse)
-async def authenticated_user(username: str = Depends(require_panel_session)) -> SessionResponse:
+async def authenticated_user(principal: Principal = Depends(require_panel_session)) -> SessionResponse:
     """Revalida a sessão HttpOnly antes de restaurar o estado autenticado."""
-    return SessionResponse(username=username)
+    return SessionResponse(username=principal.username, role=principal.role.value)
 
 
 @router.delete("/session", status_code=204)
-async def logout(response: Response) -> Response:
+async def logout(response: Response, _principal: Principal = Depends(require_panel_session)) -> Response:
     response.delete_cookie(PANEL_SESSION_COOKIE, path="/")
     response.status_code = 204
     return response

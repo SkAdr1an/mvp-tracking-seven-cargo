@@ -26,10 +26,18 @@ class Settings(BaseSettings):
     tracking_api_key: str = ""
     public_trip_internal_api_key: str = ""
     panel_admin_username: str = ""
-    panel_admin_password: str = ""
+    panel_admin_password_hash: str = ""
+    panel_admin_role: str = "Administrador"
+    panel_users_file: Path | None = None
     panel_session_secret: str = ""
     panel_session_ttl_hours: int = 8
     panel_cookie_secure: bool = False
+    force_https: bool = False
+    expose_api_docs: bool = True
+    login_rate_limit_attempts: int = 5
+    login_rate_limit_window_seconds: int = 60
+    sensitive_rate_limit_attempts: int = 30
+    sensitive_rate_limit_window_seconds: int = 60
     public_trip_base_url: str = "http://localhost:5173/viagem"
     public_trip_token_pepper: str = ""
     public_trip_default_ttl_hours: int = 168
@@ -59,6 +67,7 @@ class Settings(BaseSettings):
     driver_alert_place_first_km: float = 5
     driver_alert_place_reinforce_km: float = 1
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    allowed_hosts: str = "localhost,127.0.0.1"
     operations_database_path: Path = DEFAULT_OPERATIONS_DATABASE
     fleet_collector_enabled: bool = True
     fleet_collector_interval_seconds: int = 60
@@ -110,6 +119,14 @@ class Settings(BaseSettings):
         path = Path(value)
         return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
 
+    @field_validator("panel_users_file", mode="before")
+    @classmethod
+    def absolute_users_path(cls, value: str | Path | None) -> Path | None:
+        if value is None or not str(value).strip():
+            return None
+        path = Path(value)
+        return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
+
     @property
     def development(self) -> bool:
         return self.app_environment.strip().lower() in {"development", "dev", "local"}
@@ -128,6 +145,19 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 f"PUBLIC_TRIP_TOKEN_PEPPER must be configured in {ENV_FILE}"
             )
+
+    def validate_security_runtime(self) -> None:
+        if not self.development:
+            if not self.panel_cookie_secure:
+                raise RuntimeError("PANEL_COOKIE_SECURE must be true outside development")
+            if not self.force_https:
+                raise RuntimeError("FORCE_HTTPS must be true outside development")
+            origins = [value.strip() for value in self.frontend_origins.split(",") if value.strip()]
+            if not origins or "*" in origins or any(not value.startswith("https://") for value in origins):
+                raise RuntimeError("FRONTEND_ORIGINS must contain only explicit HTTPS origins")
+            hosts = [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
+            if not hosts or "*" in hosts:
+                raise RuntimeError("ALLOWED_HOSTS must contain explicit production hosts")
 
 
 @lru_cache
