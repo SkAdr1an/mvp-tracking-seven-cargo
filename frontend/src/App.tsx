@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { api } from './api'
 import { Header } from './components/Header'
 import { ContentErrorBoundary } from './components/ContentErrorBoundary'
 import { Sidebar } from './components/Sidebar'
@@ -9,10 +10,18 @@ import { Overview } from './pages/Overview'
 import { Routes } from './pages/Routes'
 import { Trafegus } from './pages/Trafegus'
 import { AngelLiraAdmin } from './pages/AngelLiraAdmin'
-import type { Driver, Page } from './types'
+import type { Driver, Page, PanelSession } from './types'
 import './mobile-shell.css'
 
 export default function App() {
+  const [session, setSession] = useState<PanelSession | null>()
+  useEffect(() => { api.panelMe().then(setSession).catch(() => setSession(null)) }, [])
+  if (session === undefined) return <div className="auth-shell"><div className="auth-card"><p>Verificando sessão segura...</p></div></div>
+  if (session === null) return <PanelLogin onAuthenticated={setSession} />
+  return <AuthenticatedApp session={session} onLogout={async () => { await api.panelLogout(); setSession(null) }} />
+}
+
+function AuthenticatedApp({ session, onLogout }: { session: PanelSession; onLogout: () => Promise<void> }) {
   const [page, setPage] = useState<Page>('overview')
   const [menuOpen, setMenuOpen] = useState(false)
   const [selectedId, setSelectedId] = useState<string>()
@@ -44,7 +53,7 @@ export default function App() {
     <Sidebar page={page} onChange={setPage} open={menuOpen} onClose={() => setMenuOpen(false)} />
     {menuOpen && <button className="sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="Fechar menu" />}
     <main className="main-content">
-      <Header page={page} connection={connection} menuOpen={menuOpen} attentionCount={fleet?.counts.attention ?? 0} criticalCount={fleet?.counts.critical ?? 0} onMenu={() => setMenuOpen(true)} onReconnect={reconnect} />
+      <Header page={page} connection={connection} menuOpen={menuOpen} attentionCount={fleet?.counts.attention ?? 0} criticalCount={fleet?.counts.critical ?? 0} username={session.username} role={session.role} onLogout={onLogout} onMenu={() => setMenuOpen(true)} onReconnect={reconnect} />
       <div className="page-content">
         <ContentErrorBoundary resetKey={`${page}:${selectedId ?? ''}`} onOverview={() => { setSelectedId(undefined); setPage('overview') }}>
         {page === 'overview' && <Overview drivers={drivers} selected={selected} hiddenDriverIds={hiddenDriverIds} pinnedDriverId={pinnedDriverId} onSelect={(driver) => { setSelectedId(driver.id) }} onClear={()=>setSelectedId(undefined)} onOpenDrivers={() => setPage('drivers')} fleet={fleet} source={source} traffic={traffic} paths={paths} sites={sites} onTrafficChanged={refreshTraffic} />}
@@ -57,6 +66,30 @@ export default function App() {
       </div>
     </main>
   </div>
+}
+
+function PanelLogin({ onAuthenticated }: { onAuthenticated: (session: PanelSession) => void }) {
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [pending, setPending] = useState(false)
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault(); setPending(true); setError('')
+    try { onAuthenticated(await api.panelLogin({ username, password })) }
+    catch { setError('Não foi possível entrar. Verifique as credenciais ou tente novamente mais tarde.') }
+    finally { setPending(false); setPassword('') }
+  }
+  return <main className="auth-shell">
+    <form className="auth-card" onSubmit={submit}>
+      <span className="auth-brand">7SEVEN CARGO</span>
+      <h1>Acesso ao painel</h1>
+      <p>Entre com sua conta autorizada.</p>
+      <label>Usuário<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required maxLength={100}/></label>
+      <label>Senha<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={500}/></label>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      <button type="submit" disabled={pending}>{pending ? 'Entrando...' : 'Entrar'}</button>
+    </form>
+  </main>
 }
 
 function stored<T>(key:string,fallback:T):T{try{const value=localStorage.getItem(key);return value?JSON.parse(value) as T:fallback}catch{return fallback}}

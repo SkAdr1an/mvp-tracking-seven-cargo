@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.services.traffic_monitoring import ROUTE_GEOMETRIES, traffic_monitoring_service, traffic_repository
 from app.services.route_deviation import route_deviation_service
-from app.core.security import require_panel_session
+from app.core.security import Permission, require_panel_username, require_permission
 
 
-router=APIRouter(prefix="/traffic",tags=["traffic"])
+router=APIRouter(prefix="/traffic",tags=["traffic"],dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
 
 
 class ManualIncidentRequest(BaseModel):
@@ -95,7 +95,7 @@ async def affected_vehicles(incident_id: str):
 @router.post("/manual",status_code=201)
 async def create_manual(
     payload: ManualIncidentRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ):
     if not traffic_monitoring_service.repository.operations.route(payload.route_id): raise HTTPException(404,"Rota não encontrada")
     values = payload.model_dump()
@@ -107,7 +107,7 @@ async def create_manual(
 async def update_manual(
     incident_id: str,
     payload: ManualUpdateRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ):
     changes=dict(payload.changes)
     if payload.action=="CONFIRMED": changes["status"]="CONFIRMED"

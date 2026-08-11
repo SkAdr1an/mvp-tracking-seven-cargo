@@ -250,6 +250,7 @@ export interface OperationalTrip {
 export interface PanelSession {
   authenticated: true
   username: string
+  role: string
   expires_at?: string | null
 }
 

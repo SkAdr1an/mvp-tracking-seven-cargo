@@ -1,4 +1,4 @@
-import { Bell, Menu, RefreshCw } from 'lucide-react'
+import { Bell, LogOut, Menu, RefreshCw } from 'lucide-react'
 import type { Page } from '../types'
 
 const titles: Record<Page, [string, string]> = {
@@ -10,12 +10,15 @@ const titles: Record<Page, [string, string]> = {
   angellira: ['Base AngelLira', 'Referências homologadas e filas de revisão'],
 }
 
-export function Header({ page, connection, menuOpen, attentionCount, criticalCount, onMenu, onReconnect }: {
+export function Header({ page, connection, menuOpen, attentionCount, criticalCount, username, role, onLogout, onMenu, onReconnect }: {
   page: Page
   connection: 'connecting' | 'connected' | 'disconnected'
   menuOpen: boolean
   attentionCount: number
   criticalCount: number
+  username: string
+  role: string
+  onLogout: () => Promise<void>
   onMenu: () => void
   onReconnect: () => void
 }) {
@@ -35,7 +38,8 @@ export function Header({ page, connection, menuOpen, attentionCount, criticalCou
           {connection === 'disconnected' && <RefreshCw size={14} />}
         </button>
         <button className="icon-button" aria-label="Notificações"><Bell size={20} /><span className="notification-dot" /></button>
-        <div className="avatar">OP</div>
+        <div className="topbar__identity"><span>{username}</span><small>{role}</small></div>
+        <button className="icon-button" onClick={() => void onLogout()} aria-label="Sair"><LogOut size={20}/></button>
       </div>
     </header>
   )

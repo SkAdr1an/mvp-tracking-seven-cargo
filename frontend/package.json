@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node --experimental-strip-types --test src/components/mapUtils.test.ts src/components/stationMapUtils.test.ts src/components/providerNeutralRoutes.test.ts src/components/publicLinkUtils.test.ts src/components/driverPublicLink.test.ts src/dataSafety.test.ts src/driverPresentation.test.ts src/hooks/useDriverTracking.test.ts src/mobileLayout.test.ts src/public/publicOffline.test.ts src/public/publicPwa.test.ts src/public/portalStage1.test.ts src/public/mobileLocation.test.ts src/public/portalAlerts.test.ts src/public/portalStage4.test.ts src/public/publicMapUtils.test.ts",
+    "test": "node --experimental-strip-types --test src/authGate.test.ts src/components/mapUtils.test.ts src/components/stationMapUtils.test.ts src/components/providerNeutralRoutes.test.ts src/components/publicLinkUtils.test.ts src/components/driverPublicLink.test.ts src/dataSafety.test.ts src/driverPresentation.test.ts src/hooks/useDriverTracking.test.ts src/mobileLayout.test.ts src/public/publicOffline.test.ts src/public/publicPwa.test.ts src/public/portalStage1.test.ts src/public/mobileLocation.test.ts src/public/portalAlerts.test.ts src/public/portalStage4.test.ts src/public/publicMapUtils.test.ts",
     "typecheck": "tsc -b",
     "preview": "vite preview"
   },

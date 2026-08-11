@@ -4,13 +4,14 @@ from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from app.core.security import Permission, require_permission
 
 from app.core.config import get_settings
 from app.services.angellira import AngelLiraService
 from app.storage.angellira import AngelLiraRepository
 
 
-router = APIRouter(prefix="/angellira", tags=["reference-data"])
+router = APIRouter(prefix="/angellira", tags=["reference-data"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
 
 
 @lru_cache

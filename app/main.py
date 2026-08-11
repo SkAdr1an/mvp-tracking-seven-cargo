@@ -3,8 +3,10 @@ import logging
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from app.integrations.tomtom import AuthError, RateLimitError, TomTomClient, UnavailableError, UpstreamError
@@ -12,6 +14,8 @@ from app.integrations.weather import WeatherClient
 from app.integrations.driver_tracking import router as tracking_router
 from app.integrations.trafegus import TrafegusClient, TrafegusError
 from app.core.config import get_settings
+from app.core.middleware import ApplicationSecurityMiddleware
+from app.core.security import Permission, require_permission
 from app.services.operational_route import estimate_operational_time
 from app.services.route_profiles import ROUTE_PROFILES, get_route_profile
 from app.services.fleet_tracking import fleet_tracking_service
@@ -95,6 +99,7 @@ async def lifespan(_: FastAPI):
     global _collector_task, _traffic_collector_task, _route_geometry_task, _backup_task
     settings = get_settings()
     settings.validate_public_trip_runtime()
+    settings.validate_security_runtime()
     if settings.development:
         logger.info(
             "Runtime storage configured database=%s",
@@ -127,11 +132,28 @@ async def lifespan(_: FastAPI):
             await _backup_task
         _backup_task = None
 
-app = FastAPI(title="7Seven Cargo MVP Tracking", version="0.2.0", lifespan=lifespan)
+_settings = get_settings()
+app = FastAPI(
+    title="7Seven Cargo MVP Tracking",
+    version="0.2.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _settings.expose_api_docs else None,
+    redoc_url="/redoc" if _settings.expose_api_docs else None,
+    openapi_url="/openapi.json" if _settings.expose_api_docs else None,
+    debug=False,
+)
+
+app.add_middleware(ApplicationSecurityMiddleware)
+_allowed_hosts = [value.strip() for value in _settings.allowed_hosts.split(",") if value.strip()]
+if _settings.development:
+    _allowed_hosts.append("testserver")
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+if _settings.force_https:
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in get_settings().frontend_origins.split(",") if origin.strip()],
+    allow_origins=[origin.strip() for origin in _settings.frontend_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -237,7 +259,7 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/fleet/active")
+@app.get("/fleet/active", dependencies=[Depends(require_permission(Permission.INTEGRATIONS_INVOKE))])
 async def active_fleet(force: bool = Query(default=False)) -> dict[str, object]:
     """Frota ativa do Trafegus com previsão degradável por viagem."""
     try:
@@ -246,7 +268,7 @@ async def active_fleet(force: bool = Query(default=False)) -> dict[str, object]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/trafegus/vehicles/consult")
+@app.post("/trafegus/vehicles/consult", dependencies=[Depends(require_permission(Permission.INTEGRATIONS_INVOKE))])
 async def consult_vehicle(payload: PlateConsultRequest) -> dict[str, object]:
     try:
         result = await TrafegusClient().consult_plate(payload.plate)
@@ -272,7 +294,7 @@ def _sanitize_provider_data(value: object, key: str = "") -> object:
     return value
 
 
-@app.post("/routes/preview", response_model=RoutePreviewResponse)
+@app.post("/routes/preview", response_model=RoutePreviewResponse, dependencies=[Depends(require_permission(Permission.INTEGRATIONS_INVOKE))])
 async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
     profile = get_route_profile(payload.route_profile)
     if payload.route_profile and profile is None:
@@ -548,7 +570,7 @@ async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
     )
 
 
-@app.get("/integrations/status")
+@app.get("/integrations/status", dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
 async def integrations_status() -> dict[str, object]:
     settings = get_settings()
     traffic_health = traffic_monitoring_service.repository.health()

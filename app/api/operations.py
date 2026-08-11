@@ -7,12 +7,12 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.security import require_panel_session
+from app.core.security import Permission, require_panel_username, require_permission
 from app.core.config import get_settings
 from app.services.trip_operations import trip_operations_service
 
 
-router = APIRouter(prefix="/operations", tags=["operations"])
+router = APIRouter(prefix="/operations", tags=["operations"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
 
 
 class ManualActionRequest(BaseModel):
@@ -95,7 +95,7 @@ async def trip_plan(trip_key: str) -> dict[str, Any]:
 async def update_trip_plan(
     trip_key: str,
     payload: TripPlanRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ) -> dict[str, Any]:
     try:
         values = payload.model_dump(mode="json")
@@ -124,7 +124,7 @@ async def operational_exceptions() -> dict[str, Any]:
 async def justify_stop(
     stop_id: int,
     payload: StopJustificationRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ) -> dict[str, Any]:
     from app.services.journey_observation import get_journey_observation_service
     try:
@@ -149,7 +149,7 @@ async def report_data(trip_key: str) -> dict[str, Any]:
 @router.post("/trips/{trip_key}/report")
 async def generate_report(
     trip_key: str,
-    _operator: str = Depends(require_panel_session),
+    _operator: str = Depends(require_panel_username),
 ) -> dict[str, Any]:
     from dataclasses import asdict
     from app.services.trip_report import TripReportService
@@ -166,7 +166,7 @@ async def generate_report(
 async def manual_action(
     trip_key: str,
     payload: ManualActionRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ) -> dict[str, Any]:
     try:
         trip_operations_service.manual_action(
@@ -183,7 +183,7 @@ async def manual_action(
 async def assign_route(
     trip_key: str,
     payload: RouteAssignmentRequest,
-    _operator: str = Depends(require_panel_session),
+    _operator: str = Depends(require_panel_username),
 ) -> dict[str, Any]:
     route = trip_operations_service.repository.route(payload.route_id)
     if not route or not route["active"]:
@@ -199,7 +199,7 @@ async def assign_route(
 async def decide_return(
     candidate_id: int,
     payload: ReturnDecisionRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ) -> dict[str, Any]:
     if payload.decision in {"YES", "NO"} and len((payload.justification or "").strip()) < 5:
         raise HTTPException(status_code=422, detail="Informe uma justificativa com pelo menos 5 caracteres")

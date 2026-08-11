@@ -8,9 +8,9 @@ from pydantic import BaseModel, Field
 from app.services.route_deviation import route_deviation_service
 from app.services.trip_operations import trip_operations_service
 from app.storage.operations import utc_now
-from app.core.security import require_panel_session
+from app.core.security import Permission, require_panel_username, require_permission
 
-router = APIRouter(tags=["route-monitoring"])
+router = APIRouter(tags=["route-monitoring"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
 
 
 class AcknowledgeRequest(BaseModel):
@@ -85,7 +85,7 @@ async def deviation_history(trip_key: str):
 async def acknowledge(
     deviation_id: int,
     payload: AcknowledgeRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ):
     try:
         return route_deviation_service.acknowledge(deviation_id, operator, payload.reason, payload.justification)
@@ -97,7 +97,7 @@ async def acknowledge(
 async def close(
     deviation_id: int,
     payload: CloseRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ):
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")
@@ -111,7 +111,7 @@ async def close(
 async def change_driver_association(
     trip_key: str,
     payload: DriverAssociationRequest,
-    operator: str = Depends(require_panel_session),
+    operator: str = Depends(require_panel_username),
 ):
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")

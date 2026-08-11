@@ -7,10 +7,11 @@ import hmac
 import re
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Cookie, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
+from app.core.security import PANEL_SESSION_COOKIE, Permission, ROLE_PERMISSIONS, validate_panel_session
 from app.services.trip_operations import PositionUpdate, trip_operations_service
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
@@ -46,8 +47,10 @@ def _require_http_token(authorization: str | None = Header(default=None)) -> Non
         raise HTTPException(status_code=401, detail="Invalid tracking token")
 
 
-async def _accept_authorized(websocket: WebSocket, token: str | None) -> bool:
-    if not _authorized(token):
+async def _accept_authorized(websocket: WebSocket, token: str | None, *, panel_allowed: bool = False) -> bool:
+    principal = validate_panel_session(websocket.cookies.get(PANEL_SESSION_COOKIE)) if panel_allowed else None
+    panel_authorized = bool(principal and Permission.OPERATIONAL_READ in ROLE_PERMISSIONS.get(principal.role, frozenset()))
+    if not (_authorized(token) or panel_authorized):
         await websocket.close(code=1008, reason="Invalid tracking token")
         return False
     await websocket.accept()
@@ -120,7 +123,7 @@ async def websocket_manager_endpoint(
     websocket: WebSocket,
     token: str | None = Query(default=None),
 ) -> None:
-    if not await _accept_authorized(websocket, token):
+    if not await _accept_authorized(websocket, token, panel_allowed=True):
         return
 
     manager_connections.add(websocket)
@@ -161,8 +164,11 @@ async def broadcast_driver_update(
 @router.get("/drivers/active", dependencies=[])
 async def get_active_drivers(
     authorization: str | None = Header(default=None),
+    session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> dict[str, Any]:
-    _require_http_token(authorization)
+    principal = validate_panel_session(session)
+    if not (principal and Permission.OPERATIONAL_READ in ROLE_PERMISSIONS.get(principal.role, frozenset())):
+        _require_http_token(authorization)
     online = {key: value for key, value in active_drivers.items() if value["status"] != "offline"}
     return {"total": len(online), "drivers": active_drivers}
 
@@ -171,8 +177,11 @@ async def get_active_drivers(
 async def get_driver_location(
     driver_id: str,
     authorization: str | None = Header(default=None),
+    session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> dict[str, Any]:
-    _require_http_token(authorization)
+    principal = validate_panel_session(session)
+    if not (principal and Permission.OPERATIONAL_READ in ROLE_PERMISSIONS.get(principal.role, frozenset())):
+        _require_http_token(authorization)
     driver = active_drivers.get(driver_id)
     if driver is None:
         raise HTTPException(status_code=404, detail=f"Driver {driver_id} not found")

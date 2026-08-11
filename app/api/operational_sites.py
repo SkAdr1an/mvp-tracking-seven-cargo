@@ -1,9 +1,10 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.security import Permission, require_permission
 
 from app.services.operational_sites import operational_site_service
 
 
-router = APIRouter(prefix="/operational-sites", tags=["operational-sites"])
+router = APIRouter(prefix="/operational-sites", tags=["operational-sites"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
 
 
 @router.get("")

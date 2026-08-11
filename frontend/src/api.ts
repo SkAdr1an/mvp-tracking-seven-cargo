@@ -4,18 +4,13 @@ const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replac
 // Keep development panel authentication same-origin so the Strict HttpOnly
 // cookie works through localhost, 127.0.0.1 and LAN addresses alike.
 const PANEL_API_URL = import.meta.env.DEV ? '' : API_URL
-const TRACKING_TOKEN = import.meta.env.VITE_TRACKING_TOKEN || ''
 export const ADMIN_SESSION_EXPIRED_EVENT = 'seven:admin-session-expired'
 let panelSessionGeneration = 0
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const headers = new Headers(options?.headers)
   headers.set('Content-Type', 'application/json')
-  if (TRACKING_TOKEN && (path.startsWith('/tracking') || path.startsWith('/traffic') || path.startsWith('/operations') || path.startsWith('/routes') || path.startsWith('/deviations') || path.startsWith('/angellira'))) {
-    headers.set('Authorization', `Bearer ${TRACKING_TOKEN}`)
-  }
-
-  const response = await fetch(`${API_URL}${path}`, { ...options, headers })
+  const response = await fetch(`${API_URL}${path}`, { ...options, headers, credentials: 'include' })
   if (!response.ok) {
     const payload = await response.json().catch(() => null)
     const detail = payload?.detail
@@ -103,6 +98,5 @@ export const api = {
 
 export function trackingSocketUrl(): string {
   const base = (import.meta.env.VITE_WS_URL || API_URL.replace(/^http/, 'ws')).replace(/\/$/, '')
-  const token = import.meta.env.VITE_TRACKING_TOKEN || ''
-  return `${base}/tracking/ws/manager${token ? `?token=${encodeURIComponent(token)}` : ''}`
+  return `${base}/tracking/ws/manager`
 }
