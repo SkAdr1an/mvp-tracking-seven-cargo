@@ -1,4 +1,13 @@
 services:
+  volume-init:
+    build: .
+    user: "0:0"
+    command: ["sh", "-c", "install -d -o 10001 -g 10001 -m 0750 /app/data /app/reports"]
+    volumes:
+      - operations-data:/app/data
+      - reports-data:/app/reports
+    restart: "no"
+
   migrate:
     build: .
     command: ["python", "-m", "app.scripts.migrate_database"]
@@ -7,6 +16,9 @@ services:
       OPERATIONS_DATABASE_PATH: /app/data/operations.db
     volumes:
       - operations-data:/app/data
+    depends_on:
+      volume-init:
+        condition: service_completed_successfully
     restart: "no"
 
   backend:
