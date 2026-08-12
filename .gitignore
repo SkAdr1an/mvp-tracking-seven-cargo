@@ -26,6 +26,7 @@ diagnostico*.json
 # Secrets and local credentials
 .env.*
 !.env.example
+!.env.production.example
 *.pem
 *.key
 *.p12

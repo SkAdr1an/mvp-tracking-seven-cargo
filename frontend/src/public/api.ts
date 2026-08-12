@@ -1,7 +1,7 @@
 import type { PortalAlertsResponse, PublicTrip } from './types'
 import { PublicTripApiError, type PublicTripFailureReason } from './errors'
 
-const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8000').replace(/\/$/, '')
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '')
 
 export async function fetchPublicTrip(token: string, signal?: AbortSignal): Promise<PublicTrip> {
   const response = await fetch(`${API_URL}/api/public/trips/${encodeURIComponent(token)}`, {

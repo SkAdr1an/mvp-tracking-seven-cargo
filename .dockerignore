@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.production.example
 .runtime
 data
 backups
@@ -16,3 +17,6 @@ frontend/node_modules
 frontend/dist
 evidence
 test-results
+.pytest_cache
+*.tsbuildinfo
+coverage

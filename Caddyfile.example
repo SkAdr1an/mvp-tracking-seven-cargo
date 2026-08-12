@@ -1,0 +1,9 @@
+{
+    email admin@example.com
+    admin off
+}
+
+tracking.example.com {
+    # Use the production Caddyfile with APP_DOMAIN and ACME_EMAIL in .env.production.
+    reverse_proxy frontend:8080
+}
