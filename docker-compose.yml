@@ -36,8 +36,8 @@ services:
       APP_ENVIRONMENT: production
       OPERATIONS_DATABASE_PATH: /app/data/operations.db
       AUTOMATIC_REPORTS_DIRECTORY: /app/data/reports/automatic
-      PANEL_COOKIE_SECURE: "true"
-      FORCE_HTTPS: "true"
+      PANEL_COOKIE_SECURE: ${PANEL_COOKIE_SECURE:-true}
+      FORCE_HTTPS: ${FORCE_HTTPS:-true}
       EXPOSE_API_DOCS: "false"
       HOME: /tmp
       XDG_CACHE_HOME: /tmp/.cache
@@ -59,7 +59,7 @@ services:
       args:
         VITE_API_URL: ""
         VITE_WS_URL: ""
-        VITE_PUBLIC_APP_URL: https://${APP_DOMAIN}
+        VITE_PUBLIC_APP_URL: ""
     networks: [internal]
     depends_on:
       backend: {condition: service_healthy}

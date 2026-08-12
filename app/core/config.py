@@ -8,6 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ENV_FILE = PROJECT_ROOT / ".env"
 DEFAULT_OPERATIONS_DATABASE = PROJECT_ROOT / "data" / "operations.db"
+TEMPORARY_HTTP_ORIGIN = "http://190.2.184.66"
+TEMPORARY_HTTP_HOST = "190.2.184.66"
 
 
 class Settings(BaseSettings):
@@ -148,14 +150,22 @@ class Settings(BaseSettings):
 
     def validate_security_runtime(self) -> None:
         if not self.development:
+            origins = [value.strip() for value in self.frontend_origins.split(",") if value.strip()]
+            hosts = [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
+            temporary_http_ip = (
+                origins == [TEMPORARY_HTTP_ORIGIN]
+                and hosts == [TEMPORARY_HTTP_HOST]
+                and not self.panel_cookie_secure
+                and not self.force_https
+            )
+            if temporary_http_ip:
+                return
             if not self.panel_cookie_secure:
                 raise RuntimeError("PANEL_COOKIE_SECURE must be true outside development")
             if not self.force_https:
                 raise RuntimeError("FORCE_HTTPS must be true outside development")
-            origins = [value.strip() for value in self.frontend_origins.split(",") if value.strip()]
             if not origins or "*" in origins or any(not value.startswith("https://") for value in origins):
                 raise RuntimeError("FRONTEND_ORIGINS must contain only explicit HTTPS origins")
-            hosts = [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
             if not hosts or "*" in hosts:
                 raise RuntimeError("ALLOWED_HOSTS must contain explicit production hosts")
 
