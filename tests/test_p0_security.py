@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app import main as main_module
 from app.core import security
 from app.core.config import get_settings
 from app.core.middleware import _limiter
 from app.core.security import Permission, Principal, Role, create_panel_session, hash_password, require_permission
+from app.storage.migrations import migrate_database
+
+
+@pytest.fixture(autouse=True)
+def isolated_security_database(tmp_path, monkeypatch):
+    database = tmp_path / "security.sqlite"
+    migrate_database(database)
+    monkeypatch.setattr(get_settings(), "operations_database_path", database)
 
 
 def real_security_boundary():

@@ -27,7 +27,9 @@ def counts(connection: sqlite3.Connection) -> dict[str, int]:
     }
 
 
-with sqlite3.connect(BACKUP) as before, sqlite3.connect(CURRENT) as after:
+with sqlite3.connect(f"file:{BACKUP.as_posix()}?mode=ro", uri=True) as before, sqlite3.connect(
+    f"file:{CURRENT.as_posix()}?mode=ro", uri=True
+) as after:
     old_counts = counts(before)
     new_counts = counts(after)
     preserved = {

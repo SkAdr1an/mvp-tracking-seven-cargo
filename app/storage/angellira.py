@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from app.storage.sqlite_runtime import connect_existing_database
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -166,10 +168,9 @@ class AngelLiraRepository:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        path = Path(self.database_path)
-        if self.database_path != ":memory:":
-            path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database_path, timeout=10, check_same_thread=False)
+        connection = connect_existing_database(
+            self.database_path, timeout=10, check_same_thread=False
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")

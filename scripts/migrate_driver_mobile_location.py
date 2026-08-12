@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import argparse
-import sqlite3
 from pathlib import Path
+
+from app.storage.sqlite_runtime import connect_existing_database
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -15,7 +16,7 @@ def migrate(database: str | Path, *, reverse: bool = False) -> None:
     if not path.is_file():
         raise FileNotFoundError(path)
     script = (DOWN if reverse else UP).read_text(encoding="utf-8")
-    connection = sqlite3.connect(path)
+    connection = connect_existing_database(path)
     try:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executescript("BEGIN IMMEDIATE;\n" + script + "\nCOMMIT;")

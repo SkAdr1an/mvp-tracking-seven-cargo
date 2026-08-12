@@ -14,6 +14,7 @@ from functools import lru_cache
 from fastapi import Cookie, Depends, Header, HTTPException
 
 from app.core.config import get_settings
+from app.storage.sqlite_runtime import connect_existing_database
 
 
 PANEL_SESSION_COOKIE = "seven_panel_session"
@@ -131,23 +132,26 @@ def create_panel_session(principal: Principal) -> tuple[str, int]:
     token = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
     session_id = secrets.token_hex(16)
-    with sqlite3.connect(settings.operations_database_path) as connection:
-        connection.execute("DELETE FROM panel_sessions WHERE expires_at <= ?", (issued_at,))
-        connection.execute(
-            """INSERT INTO panel_sessions(
-                   id, token_hash, username, role, user_fingerprint,
-                   created_at, expires_at, revoked_at
-               ) VALUES(?,?,?,?,?,?,?,NULL)""",
-            (
-                session_id,
-                token_hash,
-                principal.username,
-                principal.role.value,
-                _user_fingerprint(configured[0], configured[1]),
-                issued_at,
-                expires_at,
-            ),
-        )
+    try:
+        with connect_existing_database(settings.operations_database_path) as connection:
+            connection.execute("DELETE FROM panel_sessions WHERE expires_at <= ?", (issued_at,))
+            connection.execute(
+                """INSERT INTO panel_sessions(
+                       id, token_hash, username, role, user_fingerprint,
+                       created_at, expires_at, revoked_at
+                   ) VALUES(?,?,?,?,?,?,?,NULL)""",
+                (
+                    session_id,
+                    token_hash,
+                    principal.username,
+                    principal.role.value,
+                    _user_fingerprint(configured[0], configured[1]),
+                    issued_at,
+                    expires_at,
+                ),
+            )
+    except sqlite3.Error as exc:
+        raise RuntimeError("Panel session storage unavailable") from exc
     return token, expires_at
 
 
@@ -158,7 +162,7 @@ def validate_panel_session(token: str | None) -> Principal | None:
     try:
         now = int(time.time())
         token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
-        with sqlite3.connect(settings.operations_database_path) as connection:
+        with connect_existing_database(settings.operations_database_path) as connection:
             row = connection.execute(
                 """SELECT username, role, user_fingerprint, expires_at, revoked_at
                    FROM panel_sessions WHERE token_hash=?""",
@@ -185,7 +189,7 @@ def revoke_panel_session(token: str | None) -> None:
     settings = get_settings()
     try:
         token_hash = hashlib.sha256(token.encode("ascii")).hexdigest()
-        with sqlite3.connect(settings.operations_database_path) as connection:
+        with connect_existing_database(settings.operations_database_path) as connection:
             connection.execute(
                 "UPDATE panel_sessions SET revoked_at=? WHERE token_hash=? AND revoked_at IS NULL",
                 (int(time.time()), token_hash),

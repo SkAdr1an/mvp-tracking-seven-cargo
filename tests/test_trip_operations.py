@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from app.integrations.trafegus import TrafegusClient
 from app.services.trip_operations import (
@@ -250,6 +251,9 @@ def test_operational_actions_require_panel_session_and_preserve_audit(tmp_path, 
     service.repository.ensure_trip(key, PLATE, "api-trip", "betim-jaboatao")
     monkeypatch.setattr(operations_api, "trip_operations_service", service)
     settings = main_module.get_settings()
+    monkeypatch.setattr(
+        settings, "operations_database_path", Path(service.repository.database_path)
+    )
     monkeypatch.setattr(settings, "panel_admin_username", "operador")
     monkeypatch.setattr(settings, "panel_admin_password_hash", hash_password("senha-forte-123"))
     monkeypatch.setattr(settings, "panel_session_secret", "segredo-de-sessao-com-mais-de-32-bytes")

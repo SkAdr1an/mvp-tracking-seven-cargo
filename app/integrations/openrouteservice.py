@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.storage.sqlite_runtime import connect_existing_database
 from app.integrations.tomtom import AuthError, RateLimitError, UnavailableError, UpstreamError
 
 
@@ -70,7 +71,9 @@ class OpenRouteServiceClient:
     @staticmethod
     def _audit(fingerprint: str, context: str, status: int | None, result: str, started: float) -> None:
         try:
-            connection = sqlite3.connect(get_settings().operations_database_path, timeout=5)
+            connection = connect_existing_database(
+                get_settings().operations_database_path, timeout=5
+            )
             connection.execute(
                 """INSERT INTO routing_api_usage
                    (request_fingerprint,context,travel_mode,traffic_enabled,http_status,

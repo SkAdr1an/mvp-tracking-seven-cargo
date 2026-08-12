@@ -72,3 +72,12 @@ def test_tracking_http_fallbacks_use_http_status_codes() -> None:
     response = client.get("/tracking/drivers/active", headers=headers)
     assert response.status_code == 200
     assert response.json()["total"] == 1
+
+
+def test_status_authentication_precedes_parameter_validation() -> None:
+    response = client.post(
+        "/tracking/driver/driver-1/status",
+        params={"status": "unknown"},
+    )
+    assert response.status_code == 401
+    assert response.json() == {"detail": "Invalid tracking token"}

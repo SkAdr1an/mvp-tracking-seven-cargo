@@ -47,7 +47,10 @@ async def login(payload: LoginRequest, response: Response) -> SessionResponse:
     if not valid_user or not valid_password:
         raise HTTPException(status_code=401, detail="Invalid username or password")
     assert admin is not None
-    token, expires_at = create_panel_session(admin)
+    try:
+        token, expires_at = create_panel_session(admin)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Authentication service unavailable") from exc
     response.set_cookie(
         PANEL_SESSION_COOKIE,
         token,
@@ -81,7 +84,10 @@ async def logout(
     _principal: Principal = Depends(require_panel_session),
     session_token: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> Response:
-    revoke_panel_session(session_token)
+    try:
+        revoke_panel_session(session_token)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Authentication service unavailable") from exc
     response.delete_cookie(PANEL_SESSION_COOKIE, path="/")
     response.status_code = 204
     return response

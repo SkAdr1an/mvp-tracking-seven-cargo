@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from app.storage.sqlite_runtime import connect_existing_database
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 UP = PROJECT_ROOT / "migrations" / "008_driver_portal_alerts.sql"
 DOWN = PROJECT_ROOT / "migrations" / "008_driver_portal_alerts.down.sql"
@@ -10,12 +12,10 @@ DOWN = PROJECT_ROOT / "migrations" / "008_driver_portal_alerts.down.sql"
 
 def migrate(database: str | Path, *, reverse: bool = False) -> None:
     # Reuse the transaction/integrity behavior without coupling migration numbers.
-    import sqlite3
-
     path = Path(database).resolve()
     if not path.is_file():
         raise FileNotFoundError(path)
-    connection = sqlite3.connect(path)
+    connection = connect_existing_database(path)
     try:
         connection.executescript("BEGIN IMMEDIATE;\n" + (DOWN if reverse else UP).read_text(encoding="utf-8") + "\nCOMMIT;")
         if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":

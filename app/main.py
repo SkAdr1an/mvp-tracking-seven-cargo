@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import sqlite3
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 
@@ -29,7 +30,7 @@ from app.api.operational_sites import router as operational_sites_router
 from app.services.route_deviation import route_deviation_service
 from app.services.traffic_monitoring import traffic_monitoring_service
 from app.services.routing_provider import RoutingProviderService, RoutingProvidersFailed
-from app.storage.migrations import validate_database_schema
+from app.storage.migrations import DatabaseSchemaError, validate_database_schema
 
 
 logger = logging.getLogger(__name__)
@@ -258,6 +259,10 @@ class PlateConsultRequest(BaseModel):
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
+    try:
+        validate_database_schema(get_settings().operations_database_path)
+    except (DatabaseSchemaError, OSError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=503, detail="Operational database unavailable") from exc
     return {"status": "ok"}
 
 

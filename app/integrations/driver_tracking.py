@@ -7,7 +7,7 @@ import hmac
 import re
 from typing import Any
 
-from fastapi import APIRouter, Cookie, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
@@ -188,13 +188,11 @@ async def get_driver_location(
     return {"driver_id": driver_id, **driver}
 
 
-@router.post("/driver/{driver_id}/status")
+@router.post("/driver/{driver_id}/status", dependencies=[Depends(_require_http_token)])
 async def update_driver_status(
     driver_id: str,
     status: str,
-    authorization: str | None = Header(default=None),
 ) -> dict[str, str]:
-    _require_http_token(authorization)
     if status not in {"online", "on_route", "paused", "offline"}:
         raise HTTPException(status_code=422, detail="Invalid driver status")
     driver = active_drivers.get(driver_id)

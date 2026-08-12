@@ -29,6 +29,7 @@ def portal(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "public_trip_contact_phone", "31999999999")
     monkeypatch.setattr(settings, "public_trip_instructions", "Pare somente em local seguro.\nLigue em caso de emergência.")
     repository = OperationsRepository(tmp_path / "portal.db")
+    monkeypatch.setattr(settings, "operations_database_path", Path(repository.database_path))
     repository.upsert_route({
         "id": "route-1",
         "name": "Betim para Jaboatão",

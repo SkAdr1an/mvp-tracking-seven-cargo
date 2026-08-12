@@ -8,6 +8,7 @@ from urllib.parse import quote
 import httpx
 
 from app.core.config import get_settings
+from app.storage.sqlite_runtime import connect_existing_database
 
 logger = logging.getLogger(__name__)
 
@@ -159,15 +160,7 @@ class TomTomClient:
         """Persist only consumption metadata; coordinates and credentials are excluded."""
         try:
             path = get_settings().operations_database_path
-            connection = sqlite3.connect(path, timeout=5)
-            connection.execute(
-                """CREATE TABLE IF NOT EXISTS routing_api_usage (
-                   id INTEGER PRIMARY KEY AUTOINCREMENT,
-                   request_fingerprint TEXT NOT NULL,context TEXT NOT NULL,
-                   travel_mode TEXT NOT NULL,traffic_enabled INTEGER NOT NULL,
-                   http_status INTEGER,result TEXT NOT NULL,latency_ms REAL,
-                   occurred_at TEXT NOT NULL,provider TEXT NOT NULL DEFAULT 'tomtom')"""
-            )
+            connection = connect_existing_database(path, timeout=5)
             connection.execute(
                 """INSERT INTO routing_api_usage
                    (request_fingerprint,context,travel_mode,traffic_enabled,

@@ -8,10 +8,11 @@ import sqlite3
 
 from app.core.config import get_settings
 from app.services.operational_route_catalog import operational_route_catalog
+from app.storage.sqlite_runtime import connect_existing_database
 
 
 def _usage_count(database_path: str) -> int:
-    connection = sqlite3.connect(database_path)
+    connection = connect_existing_database(database_path)
     try:
         row = connection.execute("SELECT COUNT(*) FROM routing_api_usage").fetchone()
         return int(row[0]) if row else 0
