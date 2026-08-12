@@ -37,6 +37,57 @@ def _columns(connection: sqlite3.Connection, table: str) -> set[str]:
     return {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")}
 
 
+def _statements(script: str):
+    pending = ""
+    for line in script.splitlines(keepends=True):
+        pending += line
+        if sqlite3.complete_statement(pending):
+            statement = pending.strip()
+            pending = ""
+            if statement:
+                yield statement
+    if pending.strip():
+        raise DatabaseSchemaError("Incomplete SQL statement in migration")
+
+
+def _tables(connection: sqlite3.Connection) -> set[str]:
+    return {
+        str(row[0]) for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )
+    }
+
+
+def _current_version(connection: sqlite3.Connection) -> int | None:
+    if "schema_migrations" not in _tables(connection):
+        return None
+    row = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
+    return int(row[0]) if row and row[0] is not None else None
+
+
+def _integrity_result(connection: sqlite3.Connection) -> str:
+    return str(connection.execute("PRAGMA integrity_check").fetchone()[0])
+
+
+def _foreign_key_violations(connection: sqlite3.Connection) -> list[sqlite3.Row]:
+    return connection.execute("PRAGMA foreign_key_check").fetchall()
+
+
+def _validate_existing_database(connection: sqlite3.Connection) -> None:
+    if _integrity_result(connection) != "ok":
+        raise DatabaseSchemaError("SQLite integrity check failed")
+    if _foreign_key_violations(connection):
+        raise DatabaseSchemaError("Foreign-key violations found")
+
+
+def _validate_required_schema(connection: sqlite3.Connection) -> None:
+    missing = sorted(REQUIRED_TABLES - _tables(connection))
+    if missing:
+        raise DatabaseSchemaError(
+            f"Migration did not create required tables ({', '.join(missing)})"
+        )
+
+
 def _migration_script(connection: sqlite3.Connection) -> str:
     scripts = [OPERATIONS_SCHEMA, SITE_SCHEMA]
     for name in (
@@ -163,53 +214,47 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     return "\n".join(scripts)
 
 
-def migrate_database(database_path: str | Path, *, failure_probe: bool = False) -> None:
+def migrate_database(
+    database_path: str | Path,
+    *,
+    failure_probe: bool = False,
+    foreign_key_failure_probe: bool = False,
+) -> None:
     path = Path(database_path).resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
     try:
         connection.execute("PRAGMA foreign_keys=ON")
-        current = connection.execute(
-            "SELECT MAX(version) FROM schema_migrations"
-        ).fetchone()[0] if "schema_migrations" in {
-            row[0] for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'"
-            )
-        } else None
+        _validate_existing_database(connection)
+        connection.execute("BEGIN IMMEDIATE")
+        current = _current_version(connection)
         if current == SCHEMA_VERSION:
-            tables = {
-                str(row[0]) for row in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table'"
-                )
-            }
-            missing = REQUIRED_TABLES - tables
-            if missing:
-                raise DatabaseSchemaError("Current migration marker has an incomplete schema")
-            if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                raise DatabaseSchemaError("SQLite integrity check failed")
-            if connection.execute("PRAGMA foreign_key_check").fetchall():
-                raise DatabaseSchemaError("Foreign-key violations found")
+            _validate_required_schema(connection)
+            _validate_existing_database(connection)
+            connection.rollback()
             return
         if current is not None and int(current) > SCHEMA_VERSION:
             raise DatabaseSchemaError(
                 f"Database schema version {current} is newer than supported version {SCHEMA_VERSION}"
             )
-        script = _migration_script(connection)
-        failure_statement = "SELECT * FROM __synthetic_migration_failure__;" if failure_probe else ""
-        applied_at = datetime.now(timezone.utc).isoformat().replace("'", "''")
-        connection.executescript(
-            "BEGIN IMMEDIATE;\n"
-            + script
-            + "\n"
-            + failure_statement
-            + f"\nINSERT OR REPLACE INTO schema_migrations(version, applied_at) VALUES({SCHEMA_VERSION}, '{applied_at}');\n"
-            + "COMMIT;"
+        for statement in _statements(_migration_script(connection)):
+            connection.execute(statement)
+        if failure_probe:
+            connection.execute("SELECT * FROM __synthetic_migration_failure__")
+        if foreign_key_failure_probe:
+            connection.execute("PRAGMA defer_foreign_keys=ON")
+            connection.execute(
+                """INSERT INTO public_trip_links(
+                       id, trip_key, token_hash, created_at
+                   ) VALUES('synthetic-orphan','missing-trip','synthetic-hash','synthetic')"""
+            )
+        _validate_required_schema(connection)
+        _validate_existing_database(connection)
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+            (SCHEMA_VERSION, datetime.now(timezone.utc).isoformat()),
         )
-        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-            raise DatabaseSchemaError("SQLite integrity check failed after migration")
-        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-        if violations:
-            raise DatabaseSchemaError("Foreign-key violations found after migration")
+        connection.commit()
     except Exception:
         if connection.in_transaction:
             connection.rollback()

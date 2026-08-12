@@ -5,6 +5,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -56,6 +57,72 @@ def test_intermediate_failure_rolls_back_entire_schema(tmp_path):
     with sqlite3.connect(database) as connection:
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert tables == set()
+
+
+def test_integrity_failure_before_commit_rolls_back_everything(tmp_path, monkeypatch):
+    database = tmp_path / "integrity-failed.sqlite"
+    from app.storage import migrations
+
+    results = iter(("ok", "corrupt"))
+    monkeypatch.setattr(migrations, "_integrity_result", lambda _connection: next(results))
+    with pytest.raises(DatabaseSchemaError, match="integrity"):
+        migrate_database(database)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall() == []
+
+
+def test_foreign_key_failure_before_commit_rolls_back_everything(tmp_path):
+    database = tmp_path / "foreign-key-failed.sqlite"
+    with pytest.raises(DatabaseSchemaError, match="Foreign-key"):
+        migrate_database(database, foreign_key_failure_probe=True)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall() == []
+
+
+def test_invalid_source_is_rejected_without_changes(tmp_path):
+    database = tmp_path / "invalid-source.sqlite"
+    migrate_database(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            "INSERT INTO public_trip_links(id,trip_key,token_hash,created_at) VALUES(?,?,?,?)",
+            ("orphan", "missing-trip", "orphan-hash", "now"),
+        )
+        connection.execute("DELETE FROM schema_migrations")
+    before = _digest(database)
+    with pytest.raises(DatabaseSchemaError, match="Foreign-key"):
+        migrate_database(database)
+    assert _digest(database) == before
+
+
+def test_concurrent_migrations_are_serialized_and_idempotent(tmp_path):
+    database = tmp_path / "concurrent.sqlite"
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(lambda _: migrate_database(database), range(2)))
+    assert results == [None, None]
+    validate_database_schema(database)
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM schema_migrations WHERE version=?", (SCHEMA_VERSION,)
+        ).fetchone()[0] == 1
+
+
+def test_future_schema_version_is_rejected_without_changes(tmp_path):
+    database = tmp_path / "future.sqlite"
+    migrate_database(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO schema_migrations(version, applied_at) VALUES(?, ?)",
+            (SCHEMA_VERSION + 1, "future"),
+        )
+    before = _digest(database)
+    with pytest.raises(DatabaseSchemaError, match="newer than supported"):
+        migrate_database(database)
+    assert _digest(database) == before
 
 
 def test_validation_rejects_missing_and_incompatible_schema(tmp_path):
