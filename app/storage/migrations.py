@@ -13,7 +13,7 @@ from app.services.operational_sites import AUTHORIZED_SITE_ALIASES, SITE_SCHEMA
 from app.services.trip_operations import BETIM_JABOATAO_ROUTE, SAO_BERNARDO_CONTAGEM_ROUTE
 
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIRECTORY = PROJECT_ROOT / "migrations"
 REQUIRED_TABLES = frozenset({
@@ -26,6 +26,15 @@ REQUIRED_TABLES = frozenset({
     "portal_mobile_position_metadata",
     "portal_alert_presentations",
     "panel_sessions",
+    "communication_gaps",
+    "journey_observation_trackers",
+    "operational_exceptions",
+    "operational_stops",
+    "stop_evidence_events",
+})
+REQUIRED_INDEXES = frozenset({
+    "idx_operational_exceptions_status",
+    "idx_operational_stops_trip_time",
 })
 
 
@@ -58,6 +67,14 @@ def _tables(connection: sqlite3.Connection) -> set[str]:
     }
 
 
+def _indexes(connection: sqlite3.Connection) -> set[str]:
+    return {
+        str(row[0]) for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+        )
+    }
+
+
 def _current_version(connection: sqlite3.Connection) -> int | None:
     if "schema_migrations" not in _tables(connection):
         return None
@@ -86,6 +103,11 @@ def _validate_required_schema(connection: sqlite3.Connection) -> None:
         raise DatabaseSchemaError(
             f"Migration did not create required tables ({', '.join(missing)})"
         )
+    missing_indexes = sorted(REQUIRED_INDEXES - _indexes(connection))
+    if missing_indexes:
+        raise DatabaseSchemaError(
+            f"Migration did not create required indexes ({', '.join(missing_indexes)})"
+        )
 
 
 def _migration_script(connection: sqlite3.Connection) -> str:
@@ -100,6 +122,9 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     scripts.extend((PUBLIC_LINK_SCHEMA, TRAFFIC_SCHEMA, ANGELLIRA_SCHEMA))
     for name in ("007_driver_mobile_location.sql", "008_driver_portal_alerts.sql"):
         scripts.append((MIGRATIONS_DIRECTORY / name).read_text(encoding="utf-8"))
+    scripts.append(
+        (MIGRATIONS_DIRECTORY / "010_journey_observation.sql").read_text(encoding="utf-8")
+    )
 
     alterations: list[str] = []
     expected_columns = {
@@ -280,6 +305,17 @@ def validate_database_schema(database_path: str | Path) -> None:
         if missing:
             raise DatabaseSchemaError(
                 f"Database is not migrated: missing required tables ({', '.join(missing)})"
+            )
+        indexes = {
+            str(row[0]) for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='index'"
+            )
+        }
+        missing_indexes = sorted(REQUIRED_INDEXES - indexes)
+        if missing_indexes:
+            raise DatabaseSchemaError(
+                "Database is not migrated: missing required indexes "
+                f"({', '.join(missing_indexes)})"
             )
         row = connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
         version = int(row[0]) if row and row[0] is not None else 0

@@ -2,55 +2,47 @@ from __future__ import annotations
 
 import json
 import math
+from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from app.storage.operations import OperationsRepository, utc_now
+from app.storage.sqlite_runtime import connect_existing_database
 
 
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS journey_observation_trackers (
- trip_key TEXT PRIMARY KEY, candidate_started_at TEXT NOT NULL,
- candidate_latitude REAL NOT NULL, candidate_longitude REAL NOT NULL,
- last_position_at TEXT NOT NULL, sample_count INTEGER NOT NULL DEFAULT 1,
- stop_id INTEGER, updated_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS operational_stops (
- id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL,
- started_at TEXT NOT NULL, ended_at TEXT, duration_minutes REAL NOT NULL DEFAULT 0,
- latitude REAL NOT NULL, longitude REAL NOT NULL, sample_count INTEGER NOT NULL,
- classification TEXT NOT NULL, status TEXT NOT NULL,
- reason_code TEXT, reason_text TEXT, evidence_source TEXT,
- confidence TEXT NOT NULL, confirmed_by TEXT, confirmed_at TEXT,
- created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
-CREATE INDEX IF NOT EXISTS idx_operational_stops_trip_time
-ON operational_stops(trip_key, started_at);
-CREATE TABLE IF NOT EXISTS communication_gaps (
- id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL,
- started_at TEXT NOT NULL, ended_at TEXT NOT NULL, duration_minutes REAL NOT NULL,
- start_latitude REAL NOT NULL, start_longitude REAL NOT NULL,
- end_latitude REAL NOT NULL, end_longitude REAL NOT NULL,
- displacement_km REAL NOT NULL, interpretation TEXT NOT NULL,
- created_at TEXT NOT NULL, UNIQUE(trip_key,started_at,ended_at));
-CREATE TABLE IF NOT EXISTS stop_evidence_events (
- id INTEGER PRIMARY KEY AUTOINCREMENT, stop_id INTEGER NOT NULL,
- action TEXT NOT NULL, operator TEXT NOT NULL, justification TEXT NOT NULL,
- metadata_json TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS operational_exceptions (
- id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL,
- code TEXT NOT NULL, severity TEXT NOT NULL, status TEXT NOT NULL,
- summary TEXT NOT NULL, evidence_json TEXT NOT NULL DEFAULT '{}',
- first_detected_at TEXT NOT NULL, last_seen_at TEXT NOT NULL,
- resolved_at TEXT, resolved_by TEXT, resolution TEXT);
-CREATE INDEX IF NOT EXISTS idx_operational_exceptions_status
-ON operational_exceptions(status,severity,last_seen_at);
-"""
+REQUIRED_TABLES = frozenset({
+    "communication_gaps",
+    "journey_observation_trackers",
+    "operational_exceptions",
+    "operational_stops",
+    "stop_evidence_events",
+})
+REQUIRED_INDEXES = frozenset({
+    "idx_operational_exceptions_status",
+    "idx_operational_stops_trip_time",
+})
 
 
 class JourneyObservationService:
     def __init__(self, repository: OperationsRepository) -> None:
         self.repository = repository
-        with repository.connect() as connection:
-            connection.executescript(SCHEMA)
+        try:
+            with closing(connect_existing_database(repository.database_path)) as connection:
+                objects = {
+                    (str(row[0]), str(row[1]))
+                    for row in connection.execute(
+                        "SELECT type, name FROM sqlite_master "
+                        "WHERE type IN ('table', 'index')"
+                    )
+                }
+            tables = {name for kind, name in objects if kind == "table"}
+            indexes = {name for kind, name in objects if kind == "index"}
+            if REQUIRED_TABLES - tables or REQUIRED_INDEXES - indexes:
+                raise RuntimeError("Journey observation schema is unavailable")
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            raise RuntimeError("Journey observation storage is unavailable") from exc
 
     def observe(self, trip_key: str) -> None:
         with self.repository.connect() as connection:

@@ -11,11 +11,15 @@ from app.services.operational_sites import OperationalSiteService
 
 
 @pytest.fixture(autouse=True)
-def explicitly_migrated_test_repositories(monkeypatch):
+def explicitly_migrated_test_repositories(monkeypatch, request):
     """Legacy unit tests get an explicit disposable migration before repository use.
 
     Production constructors remain side-effect free; this adapter is test-only.
     """
+    if request.node.get_closest_marker("runtime_schema_invariance"):
+        yield
+        return
+
     operations_init = OperationsRepository.__init__
     angellira_init = AngelLiraRepository.__init__
     sites_init = OperationalSiteService.__init__
