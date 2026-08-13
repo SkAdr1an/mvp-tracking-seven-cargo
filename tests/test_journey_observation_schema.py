@@ -99,7 +99,7 @@ def test_version_nine_database_without_journey_schema_is_upgraded(tmp_path):
     assert JOURNEY_TABLES <= tables
     assert JOURNEY_INDEXES <= indexes
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 10
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_existing_journey_schema_and_operational_data_are_preserved(tmp_path):

@@ -13,7 +13,7 @@ from app.services.operational_sites import AUTHORIZED_SITE_ALIASES, SITE_SCHEMA
 from app.services.trip_operations import BETIM_JABOATAO_ROUTE, SAO_BERNARDO_CONTAGEM_ROUTE
 
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIRECTORY = PROJECT_ROOT / "migrations"
 REQUIRED_TABLES = frozenset({
@@ -26,6 +26,10 @@ REQUIRED_TABLES = frozenset({
     "portal_mobile_position_metadata",
     "portal_alert_presentations",
     "panel_sessions",
+    "users",
+    "roles",
+    "permissions",
+    "role_permissions",
     "communication_gaps",
     "journey_observation_trackers",
     "operational_exceptions",
@@ -35,6 +39,8 @@ REQUIRED_TABLES = frozenset({
 REQUIRED_INDEXES = frozenset({
     "idx_operational_exceptions_status",
     "idx_operational_stops_trip_time",
+    "idx_users_role_status",
+    "idx_role_permissions_permission",
 })
 
 
@@ -125,6 +131,9 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     scripts.append(
         (MIGRATIONS_DIRECTORY / "010_journey_observation.sql").read_text(encoding="utf-8")
     )
+    scripts.append(
+        (MIGRATIONS_DIRECTORY / "011_persistent_users_rbac.sql").read_text(encoding="utf-8")
+    )
 
     alterations: list[str] = []
     expected_columns = {
@@ -158,6 +167,10 @@ def _migration_script(connection: sqlite3.Connection) -> str:
             "manual_review_required": "ALTER TABLE angellira_stations ADD COLUMN manual_review_required INTEGER NOT NULL DEFAULT 0",
             "possible_merge_group_id": "ALTER TABLE angellira_stations ADD COLUMN possible_merge_group_id TEXT",
         },
+        "panel_sessions": {
+            "user_id": "ALTER TABLE panel_sessions ADD COLUMN user_id TEXT REFERENCES users(id)",
+            "role_code_snapshot": "ALTER TABLE panel_sessions ADD COLUMN role_code_snapshot TEXT",
+        },
         "operational_sites": {
             "address": "ALTER TABLE operational_sites ADD COLUMN address TEXT",
             "municipality": "ALTER TABLE operational_sites ADD COLUMN municipality TEXT",
@@ -167,7 +180,7 @@ def _migration_script(connection: sqlite3.Connection) -> str:
         existing = _columns(connection, table)
         alterations.extend(sql for column, sql in definitions.items() if existing and column not in existing)
 
-    scripts.extend(alterations)
+    scripts.extend(statement.rstrip(";") + ";" for statement in alterations)
     def sql(value: object) -> str:
         if value is None:
             return "NULL"
@@ -227,6 +240,8 @@ CREATE TABLE IF NOT EXISTS panel_sessions (
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
     revoked_at INTEGER,
+    user_id TEXT REFERENCES users(id),
+    role_code_snapshot TEXT,
     CHECK(expires_at > created_at)
 );
 CREATE INDEX IF NOT EXISTS idx_panel_sessions_user_active
@@ -236,6 +251,72 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     applied_at TEXT NOT NULL
 );
 """)
+    now = "migration-011"
+    role_names = {
+        "ADMIN": "Administrador",
+        "GR": "Gerenciamento de Risco",
+        "MONITORING": "Monitoramento",
+    }
+    permission_descriptions = {
+        "dashboard:read": "Visualizar painel operacional",
+        "trips:read": "Visualizar viagens",
+        "drivers:read": "Visualizar motoristas e veículos",
+        "incidents:read": "Visualizar ocorrências",
+        "stops:read": "Visualizar paradas",
+        "trips:edit": "Editar dados operacionais da viagem",
+        "trips:status-correct": "Corrigir estado operacional",
+        "trips:finalize": "Finalizar viagem",
+        "trips:cancel": "Cancelar viagem",
+        "trips:archive": "Arquivar viagem",
+        "trips:reopen": "Reabrir viagem",
+        "trips:assign-route": "Associar rota",
+        "trips:assign-driver": "Associar motorista",
+        "reports:generate": "Gerar relatórios",
+        "public-links:manage": "Administrar links públicos",
+        "observations:create": "Criar observações operacionais",
+        "observations:correct-own": "Corrigir observações próprias",
+        "observations:void-any": "Anular qualquer observação",
+        "stops:justify": "Justificar paradas",
+        "incidents:create": "Criar ocorrências",
+        "incidents:edit-structural": "Editar estrutura de ocorrências",
+        "integrations:invoke": "Invocar integrações externas",
+        "audit:read-operational": "Consultar auditoria operacional",
+        "audit:read-full": "Consultar auditoria completa",
+        "users:read": "Consultar usuários",
+        "users:manage": "Administrar usuários",
+        "roles:manage": "Administrar perfis e permissões",
+        "settings:read": "Consultar configurações",
+        "settings:manage": "Administrar configurações",
+    }
+    gr = {
+        "dashboard:read", "trips:read", "drivers:read", "incidents:read", "stops:read",
+        "trips:edit", "trips:status-correct", "trips:finalize", "trips:cancel",
+        "trips:archive", "trips:reopen", "trips:assign-route", "trips:assign-driver",
+        "reports:generate", "public-links:manage", "observations:create",
+        "observations:correct-own", "stops:justify", "incidents:create",
+        "incidents:edit-structural", "integrations:invoke", "audit:read-operational",
+    }
+    monitoring = {
+        "dashboard:read", "trips:read", "drivers:read", "incidents:read", "stops:read",
+        "observations:create", "observations:correct-own", "stops:justify",
+        "incidents:create", "audit:read-operational",
+    }
+    for code, display_name in role_names.items():
+        scripts.append(
+            "INSERT OR IGNORE INTO roles(id,code,display_name,active,created_at,updated_at) "
+            f"VALUES({sql(code)},{sql(code)},{sql(display_name)},1,{sql(now)},{sql(now)});"
+        )
+    for code, description in permission_descriptions.items():
+        scripts.append(
+            "INSERT OR IGNORE INTO permissions(id,code,description) "
+            f"VALUES({sql(code)},{sql(code)},{sql(description)});"
+        )
+    for role_code, selected in (("ADMIN", set(permission_descriptions)), ("GR", gr), ("MONITORING", monitoring)):
+        for permission_code in sorted(selected):
+            scripts.append(
+                "INSERT OR IGNORE INTO role_permissions(role_id,permission_id) "
+                f"VALUES({sql(role_code)},{sql(permission_code)});"
+            )
     return "\n".join(scripts)
 
 
