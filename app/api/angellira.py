@@ -11,7 +11,7 @@ from app.services.angellira import AngelLiraService
 from app.storage.angellira import AngelLiraRepository
 
 
-router = APIRouter(prefix="/angellira", tags=["reference-data"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
+router = APIRouter(prefix="/angellira", tags=["reference-data"])
 
 
 @lru_cache
@@ -19,12 +19,12 @@ def get_angellira_service() -> AngelLiraService:
     return AngelLiraService(AngelLiraRepository(get_settings().operations_database_path))
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def status(service: AngelLiraService = Depends(get_angellira_service)) -> dict[str, Any]:
     return service.status()
 
 
-@router.get("/stations")
+@router.get("/stations", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def stations(
     status: str = Query(default="validated", pattern="^(validated|all)$"),
     service: AngelLiraService = Depends(get_angellira_service),
@@ -37,7 +37,7 @@ async def stations(
     }
 
 
-@router.get("/risk-areas")
+@router.get("/risk-areas", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def risk_areas(
     status: str = Query(default="validated", pattern="^(validated|all)$"),
     service: AngelLiraService = Depends(get_angellira_service),
@@ -51,7 +51,7 @@ async def risk_areas(
     }
 
 
-@router.get("/admin")
+@router.get("/admin", dependencies=[Depends(require_permission(Permission.SETTINGS_READ))])
 async def admin(
     service: AngelLiraService = Depends(get_angellira_service),
 ) -> dict[str, Any]:

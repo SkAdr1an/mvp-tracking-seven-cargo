@@ -577,7 +577,7 @@ async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
     )
 
 
-@app.get("/integrations/status", dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
+@app.get("/integrations/status", dependencies=[Depends(require_permission(Permission.DASHBOARD_READ))])
 async def integrations_status() -> dict[str, object]:
     settings = get_settings()
     traffic_health = traffic_monitoring_service.repository.health()

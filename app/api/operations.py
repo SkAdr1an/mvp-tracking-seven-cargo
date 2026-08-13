@@ -8,12 +8,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, model_validator
 
-from app.core.security import Permission, require_panel_username, require_permission
+from app.core.security import (
+    Permission, Principal, enforce_permission, require_panel_session, require_permission,
+)
 from app.core.config import get_settings
 from app.services.trip_operations import trip_operations_service
 
 
-router = APIRouter(prefix="/operations", tags=["operations"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
+router = APIRouter(prefix="/operations", tags=["operations"])
 
 
 class ManualActionRequest(BaseModel):
@@ -64,12 +66,12 @@ class StopJustificationRequest(BaseModel):
     justification: str = Field(min_length=5, max_length=1000)
 
 
-@router.get("/routes")
+@router.get("/routes", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def list_routes(active_only: bool = Query(default=False)) -> dict[str, Any]:
     return {"routes": trip_operations_service.repository.routes(active_only=active_only)}
 
 
-@router.get("/trips/{trip_key}")
+@router.get("/trips/{trip_key}", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def trip_detail(trip_key: str) -> dict[str, Any]:
     detail = trip_operations_service.detail(trip_key)
     if detail is None:
@@ -77,7 +79,7 @@ async def trip_detail(trip_key: str) -> dict[str, Any]:
     return detail
 
 
-@router.get("/diagnostics/{trip_key}")
+@router.get("/diagnostics/{trip_key}", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def trip_diagnostic(trip_key: str) -> dict[str, Any]:
     value = trip_operations_service.repository.diagnostic(trip_key)
     if value is None:
@@ -85,7 +87,7 @@ async def trip_diagnostic(trip_key: str) -> dict[str, Any]:
     return value
 
 
-@router.get("/trips/{trip_key}/plan")
+@router.get("/trips/{trip_key}/plan", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def trip_plan(trip_key: str) -> dict[str, Any]:
     if not trip_operations_service.repository.trip(trip_key):
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada")
@@ -96,16 +98,16 @@ async def trip_plan(trip_key: str) -> dict[str, Any]:
 async def update_trip_plan(
     trip_key: str,
     payload: TripPlanRequest,
-    operator: str = Depends(require_panel_username),
+    principal: Principal = Depends(require_permission(Permission.TRIPS_EDIT)),
 ) -> dict[str, Any]:
     try:
         values = payload.model_dump(mode="json")
-        return trip_operations_service.repository.save_plan(trip_key, values, operator)
+        return trip_operations_service.repository.save_plan(trip_key, values, principal.username)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada") from exc
 
 
-@router.get("/trips/{trip_key}/eta-history")
+@router.get("/trips/{trip_key}/eta-history", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def trip_eta_history(
     trip_key: str, limit: int = Query(default=100, ge=1, le=1000)
 ) -> dict[str, Any]:
@@ -114,7 +116,7 @@ async def trip_eta_history(
     return {"history": trip_operations_service.repository.eta_history(trip_key, limit)}
 
 
-@router.get("/exceptions")
+@router.get("/exceptions", dependencies=[Depends(require_permission(Permission.STOPS_READ))])
 async def operational_exceptions() -> dict[str, Any]:
     from app.services.journey_observation import get_journey_observation_service
     service = get_journey_observation_service(trip_operations_service.repository)
@@ -125,18 +127,18 @@ async def operational_exceptions() -> dict[str, Any]:
 async def justify_stop(
     stop_id: int,
     payload: StopJustificationRequest,
-    operator: str = Depends(require_panel_username),
+    principal: Principal = Depends(require_permission(Permission.STOPS_JUSTIFY)),
 ) -> dict[str, Any]:
     from app.services.journey_observation import get_journey_observation_service
     try:
         return get_journey_observation_service(
             trip_operations_service.repository
-        ).justify_stop(stop_id, payload.reason, payload.justification, operator)
+        ).justify_stop(stop_id, payload.reason, payload.justification, principal.username)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Parada não encontrada") from exc
 
 
-@router.get("/trips/{trip_key}/report-data")
+@router.get("/trips/{trip_key}/report-data", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def report_data(trip_key: str) -> dict[str, Any]:
     from app.services.trip_report import TripReportService
     try:
@@ -150,7 +152,7 @@ async def report_data(trip_key: str) -> dict[str, Any]:
 @router.post("/trips/{trip_key}/report")
 async def generate_report(
     trip_key: str,
-    _operator: str = Depends(require_panel_username),
+    _principal: Principal = Depends(require_permission(Permission.REPORTS_GENERATE)),
 ) -> FileResponse:
     import re
     from pathlib import Path
@@ -179,11 +181,18 @@ async def generate_report(
 async def manual_action(
     trip_key: str,
     payload: ManualActionRequest,
-    operator: str = Depends(require_panel_username),
+    principal: Principal = Depends(require_panel_session),
 ) -> dict[str, Any]:
+    action_permissions = {
+        "finalize": Permission.TRIPS_FINALIZE,
+        "reopen": Permission.TRIPS_REOPEN,
+        "undo_detection": Permission.TRIPS_STATUS_CORRECT,
+        "correct_times": Permission.TRIPS_STATUS_CORRECT,
+    }
+    enforce_permission(principal, action_permissions[payload.action])
     try:
         trip_operations_service.manual_action(
-            trip_key, payload.action, payload.justification, operator, payload.corrections
+            trip_key, payload.action, payload.justification, principal.username, payload.corrections
         )
         return trip_operations_service.detail(trip_key) or {}
     except KeyError as exc:
@@ -196,7 +205,7 @@ async def manual_action(
 async def assign_route(
     trip_key: str,
     payload: RouteAssignmentRequest,
-    _operator: str = Depends(require_panel_username),
+    _principal: Principal = Depends(require_permission(Permission.TRIPS_ASSIGN_ROUTE)),
 ) -> dict[str, Any]:
     route = trip_operations_service.repository.route(payload.route_id)
     if not route or not route["active"]:
@@ -212,13 +221,13 @@ async def assign_route(
 async def decide_return(
     candidate_id: int,
     payload: ReturnDecisionRequest,
-    operator: str = Depends(require_panel_username),
+    principal: Principal = Depends(require_permission(Permission.TRIPS_EDIT)),
 ) -> dict[str, Any]:
     if payload.decision in {"YES", "NO"} and len((payload.justification or "").strip()) < 5:
         raise HTTPException(status_code=422, detail="Informe uma justificativa com pelo menos 5 caracteres")
     try:
         candidate = trip_operations_service.return_tracking.decide(
-            candidate_id, payload.decision, operator,
+            candidate_id, payload.decision, principal.username,
             (payload.justification or "").strip() or None,
         )
         detail_key = candidate.get("return_trip_key") or candidate["parent_trip_key"]

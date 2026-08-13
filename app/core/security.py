@@ -108,7 +108,12 @@ class Principal:
 
     def has_permission(self, permission: Permission | str) -> bool:
         requested = Permission(permission)
-        effective = self.permissions or ROLE_PERMISSIONS.get(self.role, frozenset())
+        # Persistent identities use exactly the database grants, including an
+        # intentionally empty set. Role defaults exist only for legacy users.
+        effective = (
+            self.permissions if self.user_id is not None
+            else (self.permissions or ROLE_PERMISSIONS.get(self.role, frozenset()))
+        )
         return requested in effective
 
 
@@ -349,10 +354,15 @@ def require_panel_username(principal: Principal = Depends(require_panel_session)
 def require_permission(permission: Permission | str):
     requested = Permission(permission)
     def dependency(principal: Principal = Depends(require_panel_session)) -> Principal:
-        if not principal.has_permission(requested):
-            raise HTTPException(status_code=403, detail="Permission denied")
-        return principal
+        return enforce_permission(principal, requested)
     return dependency
+
+
+def enforce_permission(principal: Principal, permission: Permission | str) -> Principal:
+    """Authorize an authenticated principal without consulting role names."""
+    if not principal.has_permission(permission):
+        raise HTTPException(status_code=403, detail="Permission denied")
+    return principal
 
 
 def require_internal_api_key(

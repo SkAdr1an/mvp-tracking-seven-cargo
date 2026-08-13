@@ -11,7 +11,7 @@ from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, We
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
-from app.core.security import PANEL_SESSION_COOKIE, Permission, ROLE_PERMISSIONS, validate_panel_session
+from app.core.security import PANEL_SESSION_COOKIE, Permission, validate_panel_session
 from app.services.trip_operations import PositionUpdate, trip_operations_service
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
@@ -49,7 +49,7 @@ def _require_http_token(authorization: str | None = Header(default=None)) -> Non
 
 async def _accept_authorized(websocket: WebSocket, token: str | None, *, panel_allowed: bool = False) -> bool:
     principal = validate_panel_session(websocket.cookies.get(PANEL_SESSION_COOKIE)) if panel_allowed else None
-    panel_authorized = bool(principal and Permission.OPERATIONAL_READ in ROLE_PERMISSIONS.get(principal.role, frozenset()))
+    panel_authorized = bool(principal and principal.has_permission(Permission.DRIVERS_READ))
     if not (_authorized(token) or panel_authorized):
         await websocket.close(code=1008, reason="Invalid tracking token")
         return False
@@ -167,7 +167,10 @@ async def get_active_drivers(
     session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> dict[str, Any]:
     principal = validate_panel_session(session)
-    if not (principal and Permission.OPERATIONAL_READ in ROLE_PERMISSIONS.get(principal.role, frozenset())):
+    if principal:
+        if not principal.has_permission(Permission.DRIVERS_READ):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
         _require_http_token(authorization)
     online = {key: value for key, value in active_drivers.items() if value["status"] != "offline"}
     return {"total": len(online), "drivers": active_drivers}
@@ -180,7 +183,10 @@ async def get_driver_location(
     session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> dict[str, Any]:
     principal = validate_panel_session(session)
-    if not (principal and Permission.OPERATIONAL_READ in ROLE_PERMISSIONS.get(principal.role, frozenset())):
+    if principal:
+        if not principal.has_permission(Permission.DRIVERS_READ):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
         _require_http_token(authorization)
     driver = active_drivers.get(driver_id)
     if driver is None:

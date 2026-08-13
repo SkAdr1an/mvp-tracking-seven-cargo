@@ -54,6 +54,7 @@ def authenticated_functional_tests():
     principal = Principal("functional-test-admin", Role.ADMIN)
     dependencies = [
         require_permission(Permission.OPERATIONAL_READ),
+        require_permission(Permission.DASHBOARD_READ),
         require_permission(Permission.INTEGRATIONS_INVOKE),
     ]
     for dependency in dependencies:

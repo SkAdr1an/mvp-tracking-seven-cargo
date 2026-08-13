@@ -8,10 +8,10 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.services.traffic_monitoring import ROUTE_GEOMETRIES, traffic_monitoring_service, traffic_repository
 from app.services.route_deviation import route_deviation_service
-from app.core.security import Permission, require_panel_username, require_permission
+from app.core.security import Permission, Principal, require_permission
 
 
-router=APIRouter(prefix="/traffic",tags=["traffic"],dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
+router=APIRouter(prefix="/traffic",tags=["traffic"],dependencies=[Depends(require_permission(Permission.INCIDENTS_READ))])
 
 
 class ManualIncidentRequest(BaseModel):
@@ -95,11 +95,11 @@ async def affected_vehicles(incident_id: str):
 @router.post("/manual",status_code=201)
 async def create_manual(
     payload: ManualIncidentRequest,
-    operator: str = Depends(require_panel_username),
+    principal: Principal = Depends(require_permission(Permission.INCIDENTS_CREATE)),
 ):
     if not traffic_monitoring_service.repository.operations.route(payload.route_id): raise HTTPException(404,"Rota não encontrada")
     values = payload.model_dump()
-    values["responsible_user"] = operator
+    values["responsible_user"] = principal.username
     return traffic_monitoring_service.create_manual(values)
 
 
@@ -107,13 +107,15 @@ async def create_manual(
 async def update_manual(
     incident_id: str,
     payload: ManualUpdateRequest,
-    operator: str = Depends(require_panel_username),
+    principal: Principal = Depends(require_permission(Permission.INCIDENTS_EDIT_STRUCTURAL)),
 ):
     changes=dict(payload.changes)
     if payload.action=="CONFIRMED": changes["status"]="CONFIRMED"
     elif payload.action=="CLOSED": changes["status"]="CLOSED"
     elif payload.action=="DISCARDED": changes["status"]="DISCARDED"
-    try: return traffic_repository.update_manual(incident_id,changes,payload.action,operator,payload.justification)
+    try: return traffic_repository.update_manual(
+        incident_id, changes, payload.action, principal.username, payload.justification
+    )
     except KeyError as exc: raise HTTPException(404,"Ocorrência não encontrada") from exc
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
 

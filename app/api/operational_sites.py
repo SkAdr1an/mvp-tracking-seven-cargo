@@ -4,7 +4,7 @@ from app.core.security import Permission, require_permission
 from app.services.operational_sites import operational_site_service
 
 
-router = APIRouter(prefix="/operational-sites", tags=["operational-sites"], dependencies=[Depends(require_permission(Permission.OPERATIONAL_READ))])
+router = APIRouter(prefix="/operational-sites", tags=["operational-sites"], dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 
 
 @router.get("")

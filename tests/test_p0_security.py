@@ -19,7 +19,7 @@ def isolated_security_database(tmp_path, monkeypatch):
 
 
 def real_security_boundary():
-    for permission in (Permission.OPERATIONAL_READ, Permission.INTEGRATIONS_INVOKE):
+    for permission in Permission:
         main_module.app.dependency_overrides.pop(require_permission(permission), None)
 
 

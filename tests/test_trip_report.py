@@ -25,7 +25,7 @@ def test_report_preserves_unavailable_delay_and_generates_unicode_html(tmp_path)
 
 def test_report_endpoint_returns_pdf_without_internal_paths(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
-    from app.core.security import Permission, require_panel_username, require_permission
+    from app.core.security import Permission, Principal, Role, require_permission
     from app.main import app
     from app.services.trip_report import GeneratedReport, TripReportService
 
@@ -42,13 +42,12 @@ def test_report_endpoint_returns_pdf_without_internal_paths(tmp_path, monkeypatc
             sha256="synthetic", evidence_level="CALCULATED",
         ),
     )
-    app.dependency_overrides[require_permission(Permission.OPERATIONAL_READ)] = lambda: None
-    app.dependency_overrides[require_panel_username] = lambda: "audit-admin"
+    principal = Principal("audit-admin", Role.ADMIN)
+    app.dependency_overrides[require_permission(Permission.REPORTS_GENERATE)] = lambda: principal
     try:
         response = TestClient(app).post("/operations/trips/trip-1/report")
     finally:
-        app.dependency_overrides.pop(require_permission(Permission.OPERATIONAL_READ), None)
-        app.dependency_overrides.pop(require_panel_username, None)
+        app.dependency_overrides.pop(require_permission(Permission.REPORTS_GENERATE), None)
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/pdf")
     assert "relatorio-viagem-trip-1.pdf" in response.headers["content-disposition"]
