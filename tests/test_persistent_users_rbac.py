@@ -94,7 +94,7 @@ def test_new_database_has_rbac_schema_seeds_and_exact_matrix(tmp_path) -> None:
             assert actual == expected
         columns = {row[1] for row in connection.execute("PRAGMA table_info(panel_sessions)")}
         assert {"user_id", "role_code_snapshot"} <= columns
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION == 11
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_schema_ten_upgrade_preserves_operational_data_and_old_session(tmp_path) -> None:

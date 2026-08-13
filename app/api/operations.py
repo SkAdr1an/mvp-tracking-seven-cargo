@@ -13,6 +13,10 @@ from app.core.security import (
 )
 from app.core.config import get_settings
 from app.services.trip_operations import trip_operations_service
+from app.services.operational_observations import (
+    ObservationConflict, ObservationType, OperationalObservationService,
+    PersistentIdentityRequired,
+)
 
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -66,6 +70,47 @@ class StopJustificationRequest(BaseModel):
     justification: str = Field(min_length=5, max_length=1000)
 
 
+class ObservationCreateRequest(BaseModel):
+    observation_type: ObservationType
+    content: str = Field(min_length=1, max_length=4000)
+    occurred_at: datetime
+    stop_id: int | None = Field(default=None, ge=1)
+    include_in_report: bool = True
+
+    @model_validator(mode="after")
+    def validate_observation(self):
+        if self.occurred_at.tzinfo is None:
+            raise ValueError("occurred_at must include timezone")
+        if not self.content.strip():
+            raise ValueError("content must not be empty")
+        return self
+
+
+class ObservationCorrectionRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+class ObservationVoidRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1000)
+
+
+def _observation_service() -> OperationalObservationService:
+    return OperationalObservationService(trip_operations_service.repository.database_path)
+
+
+def _observation_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, PersistentIdentityRequired):
+        return HTTPException(status_code=409, detail="Persistent user identity required")
+    if isinstance(exc, PermissionError):
+        return HTTPException(status_code=403, detail="Observation belongs to another author")
+    if isinstance(exc, ObservationConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    if isinstance(exc, KeyError):
+        return HTTPException(status_code=404, detail="Trip, stop or observation not found")
+    return HTTPException(status_code=422, detail=str(exc))
+
+
 @router.get("/routes", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def list_routes(active_only: bool = Query(default=False)) -> dict[str, Any]:
     return {"routes": trip_operations_service.repository.routes(active_only=active_only)}
@@ -114,6 +159,61 @@ async def trip_eta_history(
     if not trip_operations_service.repository.trip(trip_key):
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada")
     return {"history": trip_operations_service.repository.eta_history(trip_key, limit)}
+
+
+@router.get("/trips/{trip_key}/observations")
+async def list_observations(
+    trip_key: str,
+    _principal: Principal = Depends(require_permission(Permission.TRIPS_READ)),
+) -> dict[str, Any]:
+    try:
+        return {"observations": _observation_service().list_for_trip(trip_key)}
+    except (KeyError, ValueError) as exc:
+        raise _observation_error(exc) from exc
+
+
+@router.post("/trips/{trip_key}/observations", status_code=201)
+async def create_observation(
+    trip_key: str,
+    payload: ObservationCreateRequest,
+    principal: Principal = Depends(require_permission(Permission.OBSERVATIONS_CREATE)),
+) -> dict[str, Any]:
+    try:
+        return _observation_service().create(
+            trip_key=trip_key, observation_type=payload.observation_type,
+            content=payload.content, occurred_at=payload.occurred_at, principal=principal,
+            stop_id=payload.stop_id, include_in_report=payload.include_in_report,
+        )
+    except (KeyError, ValueError) as exc:
+        raise _observation_error(exc) from exc
+
+
+@router.post("/observations/{observation_id}/correction")
+async def correct_observation(
+    observation_id: str,
+    payload: ObservationCorrectionRequest,
+    principal: Principal = Depends(require_permission(Permission.OBSERVATIONS_CORRECT_OWN)),
+) -> dict[str, Any]:
+    try:
+        return _observation_service().correct(
+            observation_id, content=payload.content, reason=payload.reason, principal=principal,
+        )
+    except (KeyError, ValueError, PermissionError) as exc:
+        raise _observation_error(exc) from exc
+
+
+@router.post("/observations/{observation_id}/void")
+async def void_observation(
+    observation_id: str,
+    payload: ObservationVoidRequest,
+    principal: Principal = Depends(require_permission(Permission.OBSERVATIONS_VOID_ANY)),
+) -> dict[str, Any]:
+    try:
+        return _observation_service().void(
+            observation_id, reason=payload.reason, principal=principal,
+        )
+    except (KeyError, ValueError) as exc:
+        raise _observation_error(exc) from exc
 
 
 @router.get("/exceptions", dependencies=[Depends(require_permission(Permission.STOPS_READ))])

@@ -13,7 +13,7 @@ from app.services.operational_sites import AUTHORIZED_SITE_ALIASES, SITE_SCHEMA
 from app.services.trip_operations import BETIM_JABOATAO_ROUTE, SAO_BERNARDO_CONTAGEM_ROUTE
 
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIRECTORY = PROJECT_ROOT / "migrations"
 REQUIRED_TABLES = frozenset({
@@ -35,12 +35,16 @@ REQUIRED_TABLES = frozenset({
     "operational_exceptions",
     "operational_stops",
     "stop_evidence_events",
+    "operational_observations",
 })
 REQUIRED_INDEXES = frozenset({
     "idx_operational_exceptions_status",
     "idx_operational_stops_trip_time",
     "idx_users_role_status",
     "idx_role_permissions_permission",
+    "idx_operational_observations_trip_time",
+    "idx_operational_observations_author_time",
+    "idx_operational_observations_stop",
 })
 
 
@@ -133,6 +137,9 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     )
     scripts.append(
         (MIGRATIONS_DIRECTORY / "011_persistent_users_rbac.sql").read_text(encoding="utf-8")
+    )
+    scripts.append(
+        (MIGRATIONS_DIRECTORY / "012_operational_observations.sql").read_text(encoding="utf-8")
     )
 
     alterations: list[str] = []
