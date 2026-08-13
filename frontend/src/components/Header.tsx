@@ -8,6 +8,7 @@ const titles: Record<Page, [string, string]> = {
   trafegus: ['Consulta Trafegus', 'Veículo, posição, eventos e viagem'],
   integrations: ['Integrações', 'Saúde dos serviços conectados'],
   angellira: ['Base AngelLira', 'Referências homologadas e filas de revisão'],
+  users: ['Usuários', 'Contas, perfis e acesso ao painel'],
 }
 
 export function Header({ page, connection, menuOpen, attentionCount, criticalCount, username, role, onLogout, onMenu, onReconnect }: {

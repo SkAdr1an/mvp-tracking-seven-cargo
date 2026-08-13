@@ -5,6 +5,8 @@ import { api } from '../api'
 import type { OperationalState, OperationalTrip } from '../types'
 import { OperationalActionDialog, type OperationalDialogField } from './OperationalActionDialog'
 import { DriverPublicLink } from './DriverPublicLink'
+import { OperationalObservations } from './OperationalObservations'
+import { usePermission } from '../permissions'
 import '../mobile-map.css'
 
 type DialogState =
@@ -20,6 +22,7 @@ const labels: Record<OperationalState, string> = {
 }
 
 export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) {
+  const canReport=usePermission('reports:generate'),canCorrectStatus=usePermission('trips:status-correct'),canFinalize=usePermission('trips:finalize'),canReopen=usePermission('trips:reopen'),canPublicLink=usePermission('public-links:manage'),canEdit=usePermission('trips:edit')
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [feedback, setFeedback] = useState('')
@@ -72,7 +75,7 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     <div className="operational-card__head"><div><span className="eyebrow">Controle operacional local</span><h3>{labels[trip.state]}</h3></div><em className={`operation-state operation-state--${trip.state.toLowerCase()}`}>{labels[trip.state]}</em></div>
     {trip.driver_divergence && <div className="driver-warning"><AlertTriangle size={16} /><strong>Divergência de condutor</strong><span>Foi mantido o último vínculo confiável.</span></div>}
     {trip.previous_driver && trip.current_driver && <div className="driver-change"><History size={15} /><span>Condutor atualizado de <strong>{trip.previous_driver}</strong> para <strong>{trip.current_driver}</strong>.</span></div>}
-    {trip.return_candidate && <ReturnCard trip={trip} pending={returnDecision.isPending} onDecision={(decision)=>open({kind:'return',decision})} />}
+    {trip.return_candidate && canEdit && <ReturnCard trip={trip} pending={returnDecision.isPending} onDecision={(decision)=>open({kind:'return',decision})} />}
     <div className="operation-grid">
       <OperationValue icon={MapPinned} label="Cerca de origem" value={fenceLabel(trip.geofences?.origin, trip.geofences?.origin_distance_m)} />
       <OperationValue icon={MapPinned} label="Cerca de destino" value={fenceLabel(trip.geofences?.destination, trip.geofences?.destination_distance_m)} />
@@ -82,13 +85,14 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
       <OperationValue icon={CheckCircle2} label="Finalização" value={trip.finished_at ? `${dateLabel(trip.finished_at)} · ${trip.finish_type === 'automatic' ? 'automática' : 'manual'}` : 'Pendente'} />
     </div>
     <div className="operation-actions">
-      <button onClick={downloadReport} disabled={reportPending}><Download size={14} />{reportPending ? 'Gerando PDF...' : 'Baixar relatório PDF'}</button>
-      <button onClick={()=>open({kind:'correct'})} disabled={action.isPending}><Pencil size={14} />Corrigir horários</button>
-      {trip.state !== 'FINALIZADA_NO_SISTEMA' && trip.state !== 'RETORNO_CONCLUIDO' && <button onClick={() => open({kind:'action',action:'finalize'})} disabled={action.isPending}><CheckCircle2 size={14} />Finalizar</button>}
-      {trip.state === 'FINALIZADA_NO_SISTEMA' && <button onClick={() => open({kind:'action',action:'reopen'})} disabled={action.isPending}><RotateCcw size={14} />Reabrir</button>}
-      {(trip.state === 'NO_DESTINO' || trip.state === 'NA_ORIGEM') && <button onClick={() => open({kind:'action',action:'undo_detection'})} disabled={action.isPending}><RotateCcw size={14} />Desfazer detecção</button>}
+      {canReport&&<button onClick={downloadReport} disabled={reportPending}><Download size={14} />{reportPending ? 'Gerando PDF...' : 'Baixar relatório PDF'}</button>}
+      {canCorrectStatus&&<button onClick={()=>open({kind:'correct'})} disabled={action.isPending}><Pencil size={14} />Corrigir horários</button>}
+      {canFinalize&&trip.state !== 'FINALIZADA_NO_SISTEMA' && trip.state !== 'RETORNO_CONCLUIDO' && <button onClick={() => open({kind:'action',action:'finalize'})} disabled={action.isPending}><CheckCircle2 size={14} />Finalizar</button>}
+      {canReopen&&trip.state === 'FINALIZADA_NO_SISTEMA' && <button onClick={() => open({kind:'action',action:'reopen'})} disabled={action.isPending}><RotateCcw size={14} />Reabrir</button>}
+      {canCorrectStatus&&(trip.state === 'NO_DESTINO' || trip.state === 'NA_ORIGEM') && <button onClick={() => open({kind:'action',action:'undo_detection'})} disabled={action.isPending}><RotateCcw size={14} />Desfazer detecção</button>}
     </div>
-    <DriverPublicLink trip={trip} />
+    {canPublicLink&&<DriverPublicLink trip={trip} />}
+    <OperationalObservations tripKey={trip.trip_key} stops={trip.stops ?? []}/>
     {(action.error || returnDecision.error || reportError) && <div className="form-error">{reportError || (action.error || returnDecision.error)?.message}</div>}
     {feedback && <div className="operation-feedback" role="status">{feedback}</div>}
     <div className="operation-history"><h3><History size={15} />Histórico</h3>{trip.events?.length ? trip.events.map((event) => <div key={event.id}><i /><span>{dateLabel(event.occurred_at)}</span><strong>{event.description}</strong><small>{event.source}{event.justification ? ` · ${event.justification}` : ''}</small></div>) : <p>Nenhum evento operacional registrado.</p>}</div>

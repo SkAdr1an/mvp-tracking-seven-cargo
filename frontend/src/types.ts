@@ -236,6 +236,7 @@ export interface OperationalTrip {
   finish_type?: 'automatic' | 'manual' | null
   route?: OperationalRoute | null
   events?: OperationalEvent[]
+  stops?: { id: number; started_at?: string | null; ended_at?: string | null }[]
   geofences?: {
     origin: 'inside' | 'outside' | 'unknown'
     destination: 'inside' | 'outside' | 'unknown'
@@ -249,10 +250,16 @@ export interface OperationalTrip {
 
 export interface PanelSession {
   authenticated: true
+  user_id?: string | null
   username: string
+  display_name: string
   role: string
+  permissions: string[]
   expires_at?: string | null
 }
+
+export interface ManagedUser { id:string;username:string;display_name:string;role:'ADMIN'|'GR'|'MONITORING';status:'ACTIVE'|'INACTIVE';created_at:string;updated_at:string;last_login?:string|null;permissions:string[] }
+export interface OperationalObservation { id:string;trip_key:string;type:'GENERAL'|'STOP'|'DRIVER_CONTACT'|'GR_INTERVENTION'|'INCIDENT'|'OPERATIONAL_NOTE';type_label:string;content:string;occurred_at:string;created_at:string;status:'ACTIVE'|'CORRECTED'|'VOIDED';include_in_report:boolean;stop_id?:number|null;author:{user_id:string;username:string;display_name:string;role:string;role_label:string};correction?:{supersedes_observation_id?:string|null;reason?:string|null}|null;void?:{reason?:string|null}|null }
 
 export interface PublicLinkStatus {
   id: string
@@ -431,4 +438,4 @@ export interface AngelLiraDiagnosticContext {
   conflict_resolution?: string|null
 }
 
-export type Page = 'overview' | 'drivers' | 'routes' | 'trafegus' | 'integrations' | 'angellira'
+export type Page = 'overview' | 'drivers' | 'routes' | 'trafegus' | 'integrations' | 'angellira' | 'users'

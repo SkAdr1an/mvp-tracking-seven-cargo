@@ -6,6 +6,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Driver, OperationalSite, TrafficSnapshot, VehiclePath } from '../types'
 import { formatAgo, formatDuration } from '../utils'
 import { api } from '../api'
+import { usePermission } from '../permissions'
 import { clusterTrafficIncidents, completedRoute, filterTrafficIncidents } from './mapUtils'
 import { HomologatedStationsLayer } from './HomologatedStationsLayer'
 import { MapResizeController, type MapCameraCommand } from './MapResizeController'
@@ -15,6 +16,7 @@ type Filters = { trucks:boolean; traffic:boolean; weather:boolean; fences:boolea
 function PickCoordinate({ enabled,onPick }:{enabled:boolean;onPick:(lat:number,lon:number)=>void}) { useMapEvents({click(event){if(enabled)onPick(event.latlng.lat,event.latlng.lng)}});return null }
 
 export function DriverMap({ drivers,selected,pinnedId,paths,sites,onSelect,cameraCommand,traffic,onTrafficChanged }:{drivers:Driver[];selected?:Driver;pinnedId?:string;paths:VehiclePath[];sites:OperationalSite[];onSelect:(driver:Driver)=>void;cameraCommand:MapCameraCommand;traffic?:TrafficSnapshot;onTrafficChanged:()=>unknown}) {
+  const canCreateIncident=usePermission('incidents:create')
   const [filters,setFilters]=useState<Filters>({trucks:true,traffic:true,weather:true,fences:true,sites:true,siteRadii:true,manual:true,stations:false})
   const [manualOpen,setManualOpen]=useState(false); const [point,setPoint]=useState<{lat:number;lon:number}>();
   const [filtersOpen,setFiltersOpen]=useState(false)
@@ -51,12 +53,12 @@ export function DriverMap({ drivers,selected,pinnedId,paths,sites,onSelect,camer
       <PickCoordinate enabled={manualOpen} onPick={(lat,lon)=>setPoint({lat,lon})}/>
     </MapContainer>
     <button className="map-filters-toggle" type="button" aria-expanded={filtersOpen} aria-controls="operational-map-filters" onClick={()=>setFiltersOpen((value)=>!value)}><Layers3 size={18}/><span>Camadas</span></button>
-    <div id="operational-map-filters" className={`map-filters ${filtersOpen?'map-filters--open':''}`} aria-label="Camadas do mapa">{([['trucks','Caminhões'],['traffic','Trânsito'],['weather','Clima'],['fences','Cercas de rota'],['sites','CDs'],['siteRadii','Raios dos CDs'],['manual','Manuais'],['stations','Postos homologados']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={filters[key]} className={filters[key]?'active':''} onClick={()=>setFilters((value)=>({...value,[key]:!value[key]}))}>{label}</button>)}<button type="button" className="manual-add" onClick={()=>{setManualOpen((value)=>!value);setFiltersOpen(false)}}>+ Ocorrência</button></div>
+    <div id="operational-map-filters" className={`map-filters ${filtersOpen?'map-filters--open':''}`} aria-label="Camadas do mapa">{([['trucks','Caminhões'],['traffic','Trânsito'],['weather','Clima'],['fences','Cercas de rota'],['sites','CDs'],['siteRadii','Raios dos CDs'],['manual','Manuais'],['stations','Postos homologados']] as const).map(([key,label])=><button type="button" key={key} aria-pressed={filters[key]} className={filters[key]?'active':''} onClick={()=>setFilters((value)=>({...value,[key]:!value[key]}))}>{label}</button>)}{canCreateIncident&&<button type="button" className="manual-add" onClick={()=>{setManualOpen((value)=>!value);setFiltersOpen(false)}}>+ Ocorrência</button>}</div>
     <div className="map__legend"><span><i className="dot dot--green"/>Normal</span><span><i className="dot dot--amber"/>Atenção</span><span><i className="dot dot--red"/>Crítica</span><span className="legend-route legend-route--planned">Rota planejada</span><span className="legend-route legend-route--actual">Percurso preenchido até o caminhão</span><span>CDs · entrada 500 m · saída 650 m · aproximação 1.000 m</span>{filters.stations&&<span className="station-layer-note">Postos: referência visual · AngelLira {stations.data?.dataset?.source_version||''}</span>}</div>
     {filters.stations&&stations.isLoading&&<div className="map-layer-status">Carregando postos homologados...</div>}
     {filters.stations&&stations.isError&&<div className="map-layer-status map-layer-status--error">Não foi possível carregar os postos. As demais camadas continuam disponíveis.</div>}
     {filters.stations&&stations.data&&!stations.data.stations.length&&<div className="map-layer-status">Nenhum posto validado para exibição exata.</div>}
-    {manualOpen&&<ManualIncidentForm routes={traffic?.routes||[]} point={point} onClose={()=>setManualOpen(false)} onSaved={()=>{setManualOpen(false);setPoint(undefined);onTrafficChanged()}}/>}
+    {canCreateIncident&&manualOpen&&<ManualIncidentForm routes={traffic?.routes||[]} point={point} onClose={()=>setManualOpen(false)} onSaved={()=>{setManualOpen(false);setPoint(undefined);onTrafficChanged()}}/>}
     {!drivers.some((driver)=>driver.location)&&<div className="map__empty"><strong>Aguardando o Trafegus</strong><span>A rota e as ocorrências continuam disponíveis.</span></div>}
   </div>
 }

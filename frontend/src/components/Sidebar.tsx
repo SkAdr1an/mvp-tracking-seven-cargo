@@ -1,13 +1,15 @@
-import { CloudSun, Database, Map, Route, Settings2, Truck, Waypoints, X } from 'lucide-react'
+import { CloudSun, Database, Map, Route, Settings2, Truck, Users, Waypoints, X } from 'lucide-react'
 import type { Page } from '../types'
+import { usePanelSession, hasPermission } from '../permissions'
 
-const items: { page: Page; label: string; icon: typeof Map }[] = [
+const items: { page: Page; label: string; icon: typeof Map; permission?:string }[] = [
   { page: 'overview', label: 'Visão geral', icon: Map },
   { page: 'drivers', label: 'Motoristas', icon: Truck },
-  { page: 'routes', label: 'Planejar rota', icon: Route },
-  { page: 'trafegus', label: 'Trafegus', icon: Waypoints },
+  { page: 'routes', label: 'Planejar rota', icon: Route, permission:'integrations:invoke' },
+  { page: 'trafegus', label: 'Trafegus', icon: Waypoints, permission:'integrations:invoke' },
   { page: 'integrations', label: 'Integrações', icon: CloudSun },
-  { page: 'angellira', label: 'Base AngelLira', icon: Database },
+  { page: 'angellira', label: 'Base AngelLira', icon: Database, permission:'settings:read' },
+  { page: 'users', label: 'Usuários', icon: Users, permission:'users:read' },
 ]
 
 export function Sidebar({ page, onChange, open, onClose }: {
@@ -16,6 +18,7 @@ export function Sidebar({ page, onChange, open, onClose }: {
   open: boolean
   onClose: () => void
 }) {
+  const session=usePanelSession()
   return (
     <aside id="primary-navigation" className={`sidebar ${open ? 'sidebar--open' : ''}`}>
       <div className="brand">
@@ -25,7 +28,7 @@ export function Sidebar({ page, onChange, open, onClose }: {
       </div>
       <nav className="nav" aria-label="Navegação principal">
         <span className="nav__eyebrow">Operação</span>
-        {items.map(({ page: itemPage, label, icon: Icon }) => (
+        {items.filter((item)=>!item.permission||hasPermission(session,item.permission)).map(({ page: itemPage, label, icon: Icon }) => (
           <button
             type="button"
             key={itemPage}

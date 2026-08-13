@@ -1,10 +1,11 @@
-import type { AngelLiraAdminResponse, AngelLiraStationsResponse, FleetSnapshot, IntegrationStatus, OperationalSitesResponse, OperationalTrip, PanelSession, PublicLinkCreated, PublicLinkStatus, RoutePaths, RoutePreview, TrafegusResult, TrafficSnapshot } from './types'
+import type { AngelLiraAdminResponse, AngelLiraStationsResponse, FleetSnapshot, IntegrationStatus, ManagedUser, OperationalObservation, OperationalSitesResponse, OperationalTrip, PanelSession, PublicLinkCreated, PublicLinkStatus, RoutePaths, RoutePreview, TrafegusResult, TrafficSnapshot } from './types'
 
 const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '')
 // Keep development panel authentication same-origin so the Strict HttpOnly
 // cookie works through localhost, 127.0.0.1 and LAN addresses alike.
 const PANEL_API_URL = import.meta.env.DEV ? '' : API_URL
 export const ADMIN_SESSION_EXPIRED_EVENT = 'seven:admin-session-expired'
+export const PANEL_FORBIDDEN_EVENT = 'seven:panel-forbidden'
 let panelSessionGeneration = 0
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -17,6 +18,8 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const message = typeof detail === 'string'
       ? detail
       : detail?.upstream_message || `Falha na solicitação (${response.status})`
+    if (response.status === 401) window.dispatchEvent(new CustomEvent(ADMIN_SESSION_EXPIRED_EVENT))
+    if (response.status === 403) window.dispatchEvent(new CustomEvent(PANEL_FORBIDDEN_EVENT))
     throw new Error(message)
   }
   return response.json() as Promise<T>
@@ -41,6 +44,10 @@ async function panelRequest<T>(path: string, options?: RequestInit, allowNotFoun
       }))
       throw new Error('Sua sessão expirou. Entre novamente.')
     }
+    if (response.status === 403) {
+      window.dispatchEvent(new CustomEvent(PANEL_FORBIDDEN_EVENT))
+      throw new Error('Você não possui permissão para realizar esta ação.')
+    }
     throw new Error(typeof payload?.detail === 'string' ? payload.detail : `Falha na solicitação (${response.status})`)
   }
   if (response.status === 204) return null
@@ -57,6 +64,10 @@ async function downloadPanelPdf(path: string): Promise<void> {
       window.dispatchEvent(new CustomEvent(ADMIN_SESSION_EXPIRED_EVENT, {
         detail: { returnPath: `${window.location.pathname}${window.location.search}` },
       }))
+    }
+    if (response.status === 403) {
+      window.dispatchEvent(new CustomEvent(PANEL_FORBIDDEN_EVENT))
+      throw new Error('Você não possui permissão para realizar esta ação.')
     }
     throw new Error(typeof payload?.detail === 'string' ? payload.detail : 'Não foi possível gerar o relatório.')
   }
@@ -127,6 +138,15 @@ export const api = {
     }) as Promise<PublicLinkCreated>,
   revokePublicLink: (tripId: string) =>
     panelRequest(`/api/trips/${encodeURIComponent(tripId)}/public-link`, { method: 'DELETE' }),
+  users: () => panelRequest<{users:ManagedUser[]}>('/api/users') as Promise<{users:ManagedUser[]}>,
+  createUser: (input:{display_name:string;username:string;role:string;password:string}) => panelRequest<ManagedUser>('/api/users',{method:'POST',body:JSON.stringify(input)}) as Promise<ManagedUser>,
+  updateUser: (id:string,input:{display_name?:string;role?:string}) => panelRequest<ManagedUser>(`/api/users/${id}`,{method:'PATCH',body:JSON.stringify(input)}) as Promise<ManagedUser>,
+  resetUserPassword: (id:string,password:string) => panelRequest<ManagedUser>(`/api/users/${id}/reset-password`,{method:'POST',body:JSON.stringify({password})}) as Promise<ManagedUser>,
+  setUserActive: (id:string,active:boolean) => panelRequest<ManagedUser>(`/api/users/${id}/${active?'activate':'deactivate'}`,{method:'POST'}) as Promise<ManagedUser>,
+  observations: (tripKey:string) => panelRequest<{observations:OperationalObservation[]}>(`/operations/trips/${encodeURIComponent(tripKey)}/observations`) as Promise<{observations:OperationalObservation[]}>,
+  createObservation: (tripKey:string,input:Record<string,unknown>) => panelRequest<OperationalObservation>(`/operations/trips/${encodeURIComponent(tripKey)}/observations`,{method:'POST',body:JSON.stringify(input)}) as Promise<OperationalObservation>,
+  correctObservation: (id:string,input:{content:string;reason:string}) => panelRequest(`/operations/observations/${id}/correction`,{method:'POST',body:JSON.stringify(input)}),
+  voidObservation: (id:string,reason:string) => panelRequest(`/operations/observations/${id}/void`,{method:'POST',body:JSON.stringify({reason})}),
 }
 
 export function trackingSocketUrl(): string {

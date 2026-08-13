@@ -285,6 +285,10 @@ def test_legacy_import_is_explicit_and_does_not_expose_or_invent_credentials(tmp
     imported = repository.by_id(user_id)
     assert imported is not None and imported.role_code == "ADMIN"
     assert not hasattr(imported, "password_hash")
+    repository.create(
+        username="backup.admin", display_name="Backup Admin",
+        password_hash=hash_password("backup-admin-password"), role_code="ADMIN",
+    )
     repository.inactivate(user_id)
     blocked = TestClient(main_module.app).post(
         "/api/auth/session",

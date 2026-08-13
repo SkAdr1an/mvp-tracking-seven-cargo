@@ -32,6 +32,8 @@ class UserIdentity:
     status: str
     role_code: str
     permissions: frozenset[str]
+    created_at: str = ""
+    updated_at: str = ""
 
     @property
     def active(self) -> bool:
@@ -69,7 +71,14 @@ class UserRepository:
             id=str(row["id"]), username=str(row["username"]),
             display_name=str(row["display_name"]), status=str(row["status"]),
             role_code=str(row["role_id"]), permissions=permissions,
+            created_at=str(row["created_at"]), updated_at=str(row["updated_at"]),
         )
+
+    def list_all(self) -> list[UserIdentity]:
+        with self._connect() as connection:
+            return [self._identity(connection, row) for row in connection.execute(
+                "SELECT * FROM users ORDER BY display_name,username"
+            )]
 
     def by_id(self, user_id: str) -> UserIdentity | None:
         with self._connect() as connection:
@@ -149,6 +158,11 @@ class UserRepository:
     def change_role(self, user_id: str, role_code: str, actor_user_id: str | None = None) -> UserIdentity:
         now = utc_now()
         with self._connect() as connection:
+            current = connection.execute("SELECT role_id,status FROM users WHERE id=?", (user_id,)).fetchone()
+            if current is None:
+                raise KeyError(user_id)
+            if current[0] == "ADMIN" and current[1] == "ACTIVE" and role_code != "ADMIN":
+                self._require_another_active_admin(connection, user_id)
             cursor = connection.execute(
                 "UPDATE users SET role_id=?,updated_at=?,updated_by_user_id=? WHERE id=?",
                 (role_code, now, actor_user_id, user_id),
@@ -163,6 +177,11 @@ class UserRepository:
     def inactivate(self, user_id: str, actor_user_id: str | None = None) -> UserIdentity:
         now = utc_now()
         with self._connect() as connection:
+            current = connection.execute("SELECT role_id,status FROM users WHERE id=?", (user_id,)).fetchone()
+            if current is None:
+                raise KeyError(user_id)
+            if current[0] == "ADMIN" and current[1] == "ACTIVE":
+                self._require_another_active_admin(connection, user_id)
             cursor = connection.execute(
                 """UPDATE users SET status='INACTIVE',inactivated_at=?,inactivated_by_user_id=?,
                    updated_at=?,updated_by_user_id=? WHERE id=? AND status='ACTIVE'""",
@@ -175,6 +194,49 @@ class UserRepository:
             row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             assert row is not None
             return self._identity(connection, row)
+
+    def activate(self, user_id: str, actor_user_id: str | None = None) -> UserIdentity:
+        now = utc_now()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """UPDATE users SET status='ACTIVE',inactivated_at=NULL,inactivated_by_user_id=NULL,
+                   updated_at=?,updated_by_user_id=? WHERE id=? AND status='INACTIVE'""",
+                (now, actor_user_id, user_id),
+            )
+            if cursor.rowcount != 1 and not connection.execute(
+                "SELECT 1 FROM users WHERE id=?", (user_id,)
+            ).fetchone():
+                raise KeyError(user_id)
+            self._revoke_sessions(connection, user_id)
+            row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            assert row is not None
+            return self._identity(connection, row)
+
+    def update_display_name(
+        self, user_id: str, display_name: str, actor_user_id: str | None = None,
+    ) -> UserIdentity:
+        name = display_name.strip()
+        if not name:
+            raise ValueError("Display name is required")
+        now = utc_now()
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE users SET display_name=?,updated_at=?,updated_by_user_id=? WHERE id=?",
+                (name, now, actor_user_id, user_id),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(user_id)
+            row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+            assert row is not None
+            return self._identity(connection, row)
+
+    @staticmethod
+    def _require_another_active_admin(connection: sqlite3.Connection, user_id: str) -> None:
+        if connection.execute(
+            "SELECT 1 FROM users WHERE role_id='ADMIN' AND status='ACTIVE' AND id<>? LIMIT 1",
+            (user_id,),
+        ).fetchone() is None:
+            raise ValueError("The last active administrator cannot be changed")
 
     def revoke_sessions(self, user_id: str) -> None:
         with self._connect() as connection:
