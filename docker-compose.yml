@@ -33,11 +33,11 @@ services:
     build: .
     env_file: ${APP_ENV_FILE:-.env.production}
     environment:
-      APP_ENVIRONMENT: production
+      APP_ENVIRONMENT: ${APP_ENVIRONMENT}
       OPERATIONS_DATABASE_PATH: /app/data/operations.db
       AUTOMATIC_REPORTS_DIRECTORY: /app/data/reports/automatic
-      PANEL_COOKIE_SECURE: "true"
-      FORCE_HTTPS: "true"
+      PANEL_COOKIE_SECURE: ${PANEL_COOKIE_SECURE}
+      FORCE_HTTPS: ${FORCE_HTTPS}
       EXPOSE_API_DOCS: "false"
       HOME: /tmp
       XDG_CACHE_HOME: /tmp/.cache
