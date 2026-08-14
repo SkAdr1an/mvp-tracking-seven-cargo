@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
+from app.core.security import Principal, Role
 from app.services.journey_observation import JourneyObservationService
+from app.services.trip_lifecycle import TripLifecycleService
 from app.services.trip_report import TripReportService
 from app.storage.operations import OperationsRepository
 from app.storage.migrations import migrate_database
@@ -53,3 +56,24 @@ def test_report_endpoint_returns_pdf_without_internal_paths(tmp_path, monkeypatc
     assert "relatorio-viagem-trip-1.pdf" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF-")
     assert str(tmp_path).encode() not in response.content
+
+
+def test_report_renders_nominal_trip_lifecycle_without_technical_user_id(tmp_path):
+    database = tmp_path / "lifecycle-report.sqlite"
+    migrate_database(database)
+    repository = OperationsRepository(database)
+    repository.ensure_trip("trip-cancelled", "ABC1D23", "provider-report", None)
+    actor = Principal("gr.report", Role.GR, display_name="Gestora de Risco")
+    lifecycle = TripLifecycleService(repository)
+    lifecycle.cancel("trip-cancelled", "Carga recusada pelo destinatário", actor)
+    lifecycle.archive("trip-cancelled", "Operação encerrada e conferida", actor)
+
+    generated = TripReportService(repository, tmp_path / "reports").generate("trip-cancelled")
+    rendered = Path(generated.html_path).read_text(encoding="utf-8")
+
+    assert "Viagem cancelada" in rendered
+    assert "Carga recusada pelo destinatário" in rendered
+    assert "Viagem arquivada" in rendered
+    assert "Operação encerrada e conferida" in rendered
+    assert "Gestora de Risco" in rendered and "GR" in rendered
+    assert "cancelled_by_user_id" not in rendered

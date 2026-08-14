@@ -42,6 +42,7 @@ class TripReportService:
         human_observations = OperationalObservationService(
             self.repository.database_path
         ).list_for_trip(trip_key, active_report_only=True)
+        lifecycle = self._lifecycle_evidence(trip_key)
         delay = diagnostic.get("commitment_delta_minutes") if diagnostic else None
         sufficient = bool(
             (plan and (plan.get("customer_commitment_at") or plan.get("scheduled_arrival_at")))
@@ -58,6 +59,7 @@ class TripReportService:
             "stops": stops,
             "communication_gaps": gaps,
             "operational_observations": human_observations,
+            "lifecycle": lifecycle,
             "summary": {
                 "position_count": len(positions),
                 "stop_count": len(stops),
@@ -75,6 +77,24 @@ class TripReportService:
                 "overlap_policy": "Communication gaps are never counted as observed stops",
             },
         }
+
+    def _lifecycle_evidence(self, trip_key: str) -> dict[str, Any]:
+        actions = ("TRIP_CANCELLED", "TRIP_ARCHIVED", "TRIP_UNARCHIVED")
+        with self.repository.connect() as connection:
+            rows = connection.execute(
+                """SELECT action_type,occurred_at,actor_display_name_snapshot,
+                          actor_role_snapshot,justification
+                   FROM audit_events
+                   WHERE trip_key=? AND action_type IN (?,?,?)
+                   ORDER BY occurred_at,id""",
+                (trip_key, *actions),
+            ).fetchall()
+        return {"events": [{
+            "action": row["action_type"], "occurred_at": row["occurred_at"],
+            "responsible_name": row["actor_display_name_snapshot"],
+            "responsible_role": row["actor_role_snapshot"],
+            "reason": row["justification"],
+        } for row in rows]}
 
     def generate(self, trip_key: str) -> GeneratedReport:
         evidence = self.evidence(trip_key)
@@ -139,6 +159,20 @@ class TripReportService:
             f"{html.escape(item['author']['role_label'])}</footer></article>"
             for item in value["operational_observations"]
         ) or "<p>Nenhuma observação humana ativa incluída no relatório.</p>"
+        lifecycle_labels = {
+            "TRIP_CANCELLED": "Viagem cancelada", "TRIP_ARCHIVED": "Viagem arquivada",
+            "TRIP_UNARCHIVED": "Viagem desarquivada",
+        }
+        lifecycle = "".join(
+            "<article class='observation'>"
+            f"<small>{html.escape(item['occurred_at'])}</small>"
+            f"<p><b>{lifecycle_labels.get(item['action'], item['action'])}</b> — "
+            f"{html.escape(item.get('reason') or 'Motivo não informado')}</p>"
+            "<footer>Responsável: "
+            f"{html.escape(item['responsible_name'])} — "
+            f"{html.escape(item['responsible_role'])}</footer></article>"
+            for item in value.get("lifecycle", {}).get("events", [])
+        ) or "<p>Nenhum cancelamento ou arquivamento registrado.</p>"
         return f"""<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'>
 <title>Relatório operacional</title><style>
 body{{font:14px Arial;color:#172033;max-width:1000px;margin:36px auto;padding:0 24px}}
@@ -156,5 +190,6 @@ article{{padding:16px;border:1px solid #dbe3ea;border-radius:9px}}small,strong{{
 O relatório diferencia dados persistidos, cálculos e informações indisponíveis.</div>
 <h2>Paradas observadas</h2><table><thead><tr><th>Classificação</th><th>Início</th><th>Fim</th><th>Duração</th><th>Motivo</th></tr></thead><tbody>{stops}</tbody></table>
 <h2>Observações operacionais</h2>{observations}
+<h2>Ciclo de vida da viagem</h2>{lifecycle}
 <h2>Fontes e método</h2><p>{summary['position_count']} posições persistidas; paradas em raio de 250 m; lacunas acima de 20 minutos não entram no tempo parado.</p>
 <footer>Gerado em {generated.isoformat()} · nível de confiança {summary['confidence']}</footer></body></html>"""
