@@ -104,7 +104,7 @@ async def create_manual(
     values["responsible_user"] = principal.username
     result = traffic_monitoring_service.create_manual(values)
     AuditService(get_settings().operations_database_path).record(
-        principal, AuditAction.INCIDENT_CREATED, "incident", resource_id=result["id"],
+        principal, AuditAction.INCIDENT_CREATED, "incident", resource_id=result.get("id"),
         after={"route_id": result.get("route_id"), "category": result.get("category"),
                "severity": result.get("severity"), "status": result.get("status")},
         justification=payload.justification,

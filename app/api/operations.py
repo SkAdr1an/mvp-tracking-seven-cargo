@@ -298,8 +298,9 @@ async def generate_report(
         with pdf_path.open("rb") as generated_pdf:
             if generated_pdf.read(5) != b"%PDF-":
                 raise HTTPException(status_code=503, detail="Não foi possível gerar o PDF neste momento")
-        _audit(principal, AuditAction.REPORT_GENERATED, "trip_report", resource_id=trip_key,
-               trip_key=trip_key, metadata={"format": "PDF", "success": True})
+        AuditService(trip_operations_service.repository.database_path).record_optional(
+            principal, AuditAction.REPORT_GENERATED, "trip_report", resource_id=trip_key,
+            trip_key=trip_key, metadata={"format": "PDF", "success": True})
         safe_key = re.sub(r"[^A-Za-z0-9_-]+", "-", trip_key).strip("-")[:80] or "viagem"
         return FileResponse(pdf_path, media_type="application/pdf", filename=f"relatorio-viagem-{safe_key}.pdf")
     except KeyError as exc:

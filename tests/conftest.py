@@ -45,6 +45,42 @@ def explicitly_migrated_test_repositories(monkeypatch, request):
 
 
 @pytest.fixture(autouse=True)
+def isolate_import_time_operational_singletons(tmp_path, monkeypatch, request):
+    """Keep import-time services on a disposable database for every test.
+
+    Several legacy services intentionally share process-wide caches. Merely
+    monkeypatching Settings does not update repositories captured at import.
+    """
+    if request.node.get_closest_marker("runtime_schema_invariance"):
+        yield
+        return
+
+    from app.api import operations as operations_api, public_trip as public_trip_api
+    from app.core.config import get_settings
+    from app.services import fleet_tracking, route_deviation, route_progress, traffic_monitoring
+    from app.services.operational_diagnostic import OperationalDiagnosticService
+    from app.services.public_trip import PublicTripService
+    from app.services.return_tracking import ReturnTrackingService
+    from app.services.trip_operations import trip_operations_service
+
+    database = tmp_path / "singleton-runtime.sqlite"
+    migrate_database(database)
+    repository = OperationsRepository(database)
+    monkeypatch.setattr(get_settings(), "operations_database_path", database)
+
+    monkeypatch.setattr(trip_operations_service, "repository", repository)
+    monkeypatch.setattr(trip_operations_service, "return_tracking", ReturnTrackingService(repository))
+    monkeypatch.setattr(operations_api, "trip_operations_service", trip_operations_service)
+    monkeypatch.setattr(route_deviation.route_deviation_service, "repository", repository)
+    monkeypatch.setattr(route_progress.route_progress_service, "repository", repository)
+    monkeypatch.setattr(fleet_tracking.fleet_tracking_service, "diagnostics",
+                        OperationalDiagnosticService(repository))
+    monkeypatch.setattr(traffic_monitoring.traffic_repository, "operations", repository)
+    monkeypatch.setattr(public_trip_api, "public_trip_service", PublicTripService(repository))
+    yield
+
+
+@pytest.fixture(autouse=True)
 def authenticated_functional_tests():
     """Existing functional tests exercise business behavior as an admin.
 

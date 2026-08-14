@@ -287,7 +287,7 @@ async def consult_vehicle(
 ) -> dict[str, object]:
     try:
         result = await TrafegusClient().consult_plate(payload.plate)
-        AuditService(get_settings().operations_database_path).record(
+        AuditService(get_settings().operations_database_path).record_optional(
             principal, AuditAction.INTEGRATION_INVOKED, "integration",
             metadata={"integration": "TRAFEGUS", "operation": "vehicle_consult",
                       "vehicle": payload.plate, "success": True},
@@ -591,7 +591,7 @@ async def preview_route(
             if profile else None
         ),
     )
-    AuditService(get_settings().operations_database_path).record(
+    AuditService(get_settings().operations_database_path).record_optional(
         principal, AuditAction.INTEGRATION_INVOKED, "integration",
         metadata={"integration": "ROUTING", "operation": "route_preview",
                   "origin": payload.origin, "destination": payload.destination,

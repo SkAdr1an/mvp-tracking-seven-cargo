@@ -6,6 +6,7 @@ the source of their detailed domain history; this table is the searchable envelo
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
@@ -15,6 +16,9 @@ from typing import Any
 
 from app.core.security import Principal
 from app.storage.sqlite_runtime import connect_existing_database
+
+
+logger = logging.getLogger(__name__)
 
 
 class AuditAction(StrEnum):
@@ -120,6 +124,19 @@ class AuditService:
                  str(uuid.uuid4()), _json({"success": False}), now),
             )
         return identifier
+
+    def record_optional(self, principal: Principal, action_type: AuditAction,
+                        resource_type: str, **values: Any) -> str | None:
+        """Best-effort envelope for non-critical reads/invocations.
+
+        Operational success must not be converted into an error when a legacy
+        test/runtime has not made optional audit storage available yet.
+        """
+        try:
+            return self.record(principal, action_type, resource_type, **values)
+        except (OSError, sqlite3.Error):
+            logger.exception("Optional audit event could not be persisted action=%s", action_type)
+            return None
 
     def query(self, *, actor_user_id: str | None = None, action_type: str | None = None,
               resource_type: str | None = None, resource_id: str | None = None,
