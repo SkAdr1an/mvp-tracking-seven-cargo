@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from app.core.config import get_settings
 from app.core.security import Permission, Principal, hash_password, require_permission
 from app.storage.users import UserIdentity, UserRepository
+from app.services.audit import AuditAction, AuditService
 
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -32,6 +33,14 @@ class PasswordResetRequest(BaseModel):
 
 def _repository() -> UserRepository:
     return UserRepository(get_settings().operations_database_path)
+
+
+def _audit(principal: Principal, action: AuditAction, user_id: str, *, before=None, after=None,
+           connection=None) -> None:
+    AuditService(get_settings().operations_database_path).record(
+        principal, action, "user", resource_id=user_id, before=before, after=after,
+        connection=connection,
+    )
 
 
 def _actor(principal: Principal) -> str:
@@ -70,11 +79,17 @@ async def create_user(
 ) -> dict[str, object]:
     actor = _actor(principal)
     try:
-        return _response(_repository().create(
+        user = _repository().create(
             username=payload.username, display_name=payload.display_name,
             password_hash=hash_password(payload.password), role_code=payload.role,
             created_by_user_id=actor,
-        ))
+            audit=lambda connection, created: _audit(
+                principal, AuditAction.USER_CREATED, created.id,
+                after={"username": created.username, "display_name": created.display_name,
+                       "role": created.role_code, "status": created.status}, connection=connection),
+        )
+        result = _response(user)
+        return result
     except ValueError as exc:
         raise _translate(exc) from exc
 
@@ -86,10 +101,20 @@ async def update_user(
 ) -> dict[str, object]:
     actor, repository = _actor(principal), _repository()
     try:
+        original = repository.by_id(user_id)
+        if original is None:
+            raise KeyError(user_id)
         if payload.role is not None:
-            repository.change_role(user_id, payload.role, actor)
+            repository.change_role(user_id, payload.role, actor, audit=lambda connection, changed: _audit(
+                principal, AuditAction.USER_ROLE_CHANGED, user_id,
+                before={"role": original.role_code}, after={"role": changed.role_code},
+                connection=connection))
         if payload.display_name is not None:
-            repository.update_display_name(user_id, payload.display_name, actor)
+            repository.update_display_name(user_id, payload.display_name, actor,
+                audit=lambda connection, changed: _audit(
+                    principal, AuditAction.USER_UPDATED, user_id,
+                    before={"display_name": original.display_name},
+                    after={"display_name": changed.display_name}, connection=connection))
         user = repository.by_id(user_id)
         if user is None:
             raise KeyError(user_id)
@@ -104,9 +129,13 @@ async def reset_password(
     principal: Principal = Depends(require_permission(Permission.USERS_MANAGE)),
 ) -> dict[str, object]:
     try:
-        return _response(_repository().change_password(
-            user_id, hash_password(payload.password), _actor(principal)
-        ))
+        user = _repository().change_password(
+            user_id, hash_password(payload.password), _actor(principal),
+            audit=lambda connection, changed: _audit(
+                principal, AuditAction.USER_PASSWORD_RESET, user_id,
+                after={"password_changed": True}, connection=connection),
+        )
+        return _response(user)
     except (KeyError, ValueError) as exc:
         raise _translate(exc) from exc
 
@@ -117,7 +146,12 @@ async def deactivate_user(
     principal: Principal = Depends(require_permission(Permission.USERS_MANAGE)),
 ) -> dict[str, object]:
     try:
-        return _response(_repository().inactivate(user_id, _actor(principal)))
+        user = _repository().inactivate(user_id, _actor(principal),
+            audit=lambda connection, changed: _audit(
+                principal, AuditAction.USER_DEACTIVATED, user_id,
+                before={"status": "ACTIVE"}, after={"status": changed.status},
+                connection=connection))
+        return _response(user)
     except (KeyError, ValueError) as exc:
         raise _translate(exc) from exc
 
@@ -128,6 +162,11 @@ async def activate_user(
     principal: Principal = Depends(require_permission(Permission.USERS_MANAGE)),
 ) -> dict[str, object]:
     try:
-        return _response(_repository().activate(user_id, _actor(principal)))
+        user = _repository().activate(user_id, _actor(principal),
+            audit=lambda connection, changed: _audit(
+                principal, AuditAction.USER_ACTIVATED, user_id,
+                before={"status": "INACTIVE"}, after={"status": changed.status},
+                connection=connection))
+        return _response(user)
     except (KeyError, ValueError) as exc:
         raise _translate(exc) from exc

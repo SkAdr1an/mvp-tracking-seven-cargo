@@ -9,6 +9,7 @@ const titles: Record<Page, [string, string]> = {
   integrations: ['Integrações', 'Saúde dos serviços conectados'],
   angellira: ['Base AngelLira', 'Referências homologadas e filas de revisão'],
   users: ['Usuários', 'Contas, perfis e acesso ao painel'],
+  audit: ['Auditoria', 'Rastreabilidade administrativa e operacional'],
 }
 
 export function Header({ page, connection, menuOpen, attentionCount, criticalCount, username, role, onLogout, onMenu, onReconnect }: {

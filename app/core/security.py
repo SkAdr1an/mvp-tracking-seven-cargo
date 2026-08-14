@@ -368,12 +368,12 @@ def enforce_permission(principal: Principal, permission: Permission | str) -> Pr
 def require_internal_api_key(
     authorization: str | None = Header(default=None),
     session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
-) -> str:
+) -> Principal | str:
     principal = validate_panel_session(session)
     if principal:
         if not principal.has_permission(Permission.PUBLIC_LINKS_MANAGE):
             raise HTTPException(status_code=403, detail="Permission denied")
-        return principal.username
+        return principal
     configured = get_settings().public_trip_internal_api_key
     supplied = authorization.removeprefix("Bearer ").strip() if authorization else ""
     if not configured or not supplied or not hmac.compare_digest(supplied, configured):

@@ -111,7 +111,7 @@ def test_migration_twelve_new_upgrade_idempotence_and_rollback(tmp_path) -> None
     migrate_database(database)
     validate_database_schema(database)
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 12
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION
         indexes = {row[0] for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='index'"
         )}

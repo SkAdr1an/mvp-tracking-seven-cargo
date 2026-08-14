@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { AlertTriangle, CheckCircle2, Clock3, Download, History, MapPinned, Pencil, RotateCcw, Route } from 'lucide-react'
 import { api } from '../api'
-import type { OperationalState, OperationalTrip } from '../types'
+import type { AuditEvent, OperationalState, OperationalTrip } from '../types'
 import { OperationalActionDialog, type OperationalDialogField } from './OperationalActionDialog'
 import { DriverPublicLink } from './DriverPublicLink'
 import { OperationalObservations } from './OperationalObservations'
@@ -35,6 +35,8 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     refetchInterval: 60_000,
   })
   const trip = detail.data || initial
+  const canAudit=usePermission('audit:read-operational')
+  const audit=useQuery({queryKey:['trip-audit',initial.trip_key],queryFn:()=>api.tripAudit(initial.trip_key),enabled:canAudit})
   const action = useMutation({
     mutationFn: (input: Parameters<typeof api.operationalAction>[1]) => api.operationalAction(initial.trip_key, input),
     onSuccess: (data) => {
@@ -95,10 +97,14 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     <OperationalObservations tripKey={trip.trip_key} stops={trip.stops ?? []}/>
     {(action.error || returnDecision.error || reportError) && <div className="form-error">{reportError || (action.error || returnDecision.error)?.message}</div>}
     {feedback && <div className="operation-feedback" role="status">{feedback}</div>}
+    {canAudit&&<div className="operation-history"><h3><History size={15}/>Histórico / Auditoria operacional</h3>{audit.data?.events.length?audit.data.events.map(event=><AuditLine key={event.id} event={event}/>):<p>Nenhuma ação humana auditada nesta viagem.</p>}</div>}
     <div className="operation-history"><h3><History size={15} />Histórico</h3>{trip.events?.length ? trip.events.map((event) => <div key={event.id}><i /><span>{dateLabel(event.occurred_at)}</span><strong>{event.description}</strong><small>{event.source}{event.justification ? ` · ${event.justification}` : ''}</small></div>) : <p>Nenhum evento operacional registrado.</p>}</div>
     {dialog && <OperationalActionDialog {...dialogConfig(dialog)} context={<><strong>{trip.current_driver || 'Motorista não informado'}</strong><span>Viagem {trip.trip_key}</span><span>{trip.route?.origin_name || 'Origem não informada'} → {trip.route?.destination_name || 'Destino não informado'}</span></>} pending={action.isPending || returnDecision.isPending} error={(action.error || returnDecision.error)?.message} onCancel={()=>setDialog(null)} onConfirm={confirm}/>}
   </div>
 }
+
+function AuditLine({event}:{event:AuditEvent}){return <div><i/><span>{dateLabel(event.occurred_at)}</span><strong>{event.actor_display_name_snapshot} ({event.actor_role_snapshot})</strong><small>{auditLabel(event.action_type)}{event.justification?` · ${event.justification}`:''}</small></div>}
+function auditLabel(value:string){return value.toLowerCase().replaceAll('_',' ').replace(/^./,letter=>letter.toUpperCase())}
 
 function dialogConfig(dialog: DialogState): { title: string; description: string; confirmLabel: string; danger?: boolean; fields: OperationalDialogField[] } {
   if (dialog.kind === 'correct') return {

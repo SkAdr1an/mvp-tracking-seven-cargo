@@ -16,7 +16,8 @@ from app.integrations.driver_tracking import router as tracking_router
 from app.integrations.trafegus import TrafegusClient, TrafegusError
 from app.core.config import get_settings
 from app.core.middleware import ApplicationSecurityMiddleware
-from app.core.security import Permission, require_permission
+from app.core.security import Permission, Principal, require_permission
+from app.services.audit import AuditAction, AuditService
 from app.services.operational_route import estimate_operational_time
 from app.services.route_profiles import ROUTE_PROFILES, get_route_profile
 from app.services.fleet_tracking import fleet_tracking_service
@@ -28,6 +29,7 @@ from app.api.public_trip import router as public_trip_router
 from app.api.auth import router as auth_router
 from app.api.operational_sites import router as operational_sites_router
 from app.api.users import router as users_router
+from app.api.audit import router as audit_router
 from app.services.route_deviation import route_deviation_service
 from app.services.traffic_monitoring import traffic_monitoring_service
 from app.services.routing_provider import RoutingProviderService, RoutingProvidersFailed
@@ -173,6 +175,7 @@ app.include_router(public_trip_router)
 app.include_router(auth_router)
 app.include_router(operational_sites_router)
 app.include_router(users_router)
+app.include_router(audit_router)
 
 
 class RoutePreviewRequest(BaseModel):
@@ -277,10 +280,18 @@ async def active_fleet(force: bool = Query(default=False)) -> dict[str, object]:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-@app.post("/trafegus/vehicles/consult", dependencies=[Depends(require_permission(Permission.INTEGRATIONS_INVOKE))])
-async def consult_vehicle(payload: PlateConsultRequest) -> dict[str, object]:
+@app.post("/trafegus/vehicles/consult")
+async def consult_vehicle(
+    payload: PlateConsultRequest,
+    principal: Principal = Depends(require_permission(Permission.INTEGRATIONS_INVOKE)),
+) -> dict[str, object]:
     try:
         result = await TrafegusClient().consult_plate(payload.plate)
+        AuditService(get_settings().operations_database_path).record(
+            principal, AuditAction.INTEGRATION_INVOKED, "integration",
+            metadata={"integration": "TRAFEGUS", "operation": "vehicle_consult",
+                      "vehicle": payload.plate, "success": True},
+        )
         return _sanitize_provider_data(result)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -303,8 +314,11 @@ def _sanitize_provider_data(value: object, key: str = "") -> object:
     return value
 
 
-@app.post("/routes/preview", response_model=RoutePreviewResponse, dependencies=[Depends(require_permission(Permission.INTEGRATIONS_INVOKE))])
-async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
+@app.post("/routes/preview", response_model=RoutePreviewResponse)
+async def preview_route(
+    payload: RoutePreviewRequest,
+    principal: Principal = Depends(require_permission(Permission.INTEGRATIONS_INVOKE)),
+) -> RoutePreviewResponse:
     profile = get_route_profile(payload.route_profile)
     if payload.route_profile and profile is None:
         raise HTTPException(
@@ -482,7 +496,7 @@ async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
     else:
         status = "critical"
 
-    return RoutePreviewResponse(
+    response = RoutePreviewResponse(
         origin={"address": origin_address, "position": origin_position},
         destination={"address": destination_address, "position": destination_position},
         departure_at=payload.departure_at,
@@ -577,6 +591,13 @@ async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
             if profile else None
         ),
     )
+    AuditService(get_settings().operations_database_path).record(
+        principal, AuditAction.INTEGRATION_INVOKED, "integration",
+        metadata={"integration": "ROUTING", "operation": "route_preview",
+                  "origin": payload.origin, "destination": payload.destination,
+                  "success": True},
+    )
+    return response
 
 
 @app.get("/integrations/status", dependencies=[Depends(require_permission(Permission.DASHBOARD_READ))])

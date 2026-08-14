@@ -438,4 +438,13 @@ export interface AngelLiraDiagnosticContext {
   conflict_resolution?: string|null
 }
 
-export type Page = 'overview' | 'drivers' | 'routes' | 'trafegus' | 'integrations' | 'angellira' | 'users'
+export interface AuditEvent {
+  id:string; occurred_at:string; actor_user_id?:string|null
+  actor_username_snapshot:string; actor_display_name_snapshot:string; actor_role_snapshot:string
+  action_type:string; resource_type:string; resource_id?:string|null; trip_key?:string|null
+  before?:Record<string,unknown>|null; after?:Record<string,unknown>|null
+  content?:string|null; justification?:string|null; metadata?:Record<string,unknown>|null
+}
+export interface AuditResponse { events:AuditEvent[]; next_cursor?:string|null }
+
+export type Page = 'overview' | 'drivers' | 'routes' | 'trafegus' | 'integrations' | 'angellira' | 'users' | 'audit'

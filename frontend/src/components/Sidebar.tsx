@@ -1,4 +1,4 @@
-import { CloudSun, Database, Map, Route, Settings2, Truck, Users, Waypoints, X } from 'lucide-react'
+import { CloudSun, Database, History, Map, Route, Settings2, Truck, Users, Waypoints, X } from 'lucide-react'
 import type { Page } from '../types'
 import { usePanelSession, hasPermission } from '../permissions'
 
@@ -10,6 +10,7 @@ const items: { page: Page; label: string; icon: typeof Map; permission?:string }
   { page: 'integrations', label: 'Integrações', icon: CloudSun },
   { page: 'angellira', label: 'Base AngelLira', icon: Database, permission:'settings:read' },
   { page: 'users', label: 'Usuários', icon: Users, permission:'users:read' },
+  { page: 'audit', label: 'Auditoria', icon: History, permission:'audit:read-full' },
 ]
 
 export function Sidebar({ page, onChange, open, onClose }: {

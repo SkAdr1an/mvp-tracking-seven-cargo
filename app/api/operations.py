@@ -17,6 +17,7 @@ from app.services.operational_observations import (
     ObservationConflict, ObservationType, OperationalObservationService,
     PersistentIdentityRequired,
 )
+from app.services.audit import AuditAction, AuditService
 
 
 router = APIRouter(prefix="/operations", tags=["operations"])
@@ -99,6 +100,12 @@ def _observation_service() -> OperationalObservationService:
     return OperationalObservationService(trip_operations_service.repository.database_path)
 
 
+def _audit(principal: Principal, action: AuditAction, resource_type: str, **values: Any) -> None:
+    AuditService(trip_operations_service.repository.database_path).record(
+        principal, action, resource_type, **values
+    )
+
+
 def _observation_error(exc: Exception) -> HTTPException:
     if isinstance(exc, PersistentIdentityRequired):
         return HTTPException(status_code=409, detail="Persistent user identity required")
@@ -147,7 +154,11 @@ async def update_trip_plan(
 ) -> dict[str, Any]:
     try:
         values = payload.model_dump(mode="json")
-        return trip_operations_service.repository.save_plan(trip_key, values, principal.username)
+        before = trip_operations_service.repository.plan(trip_key)
+        result = trip_operations_service.repository.save_plan(trip_key, values, principal.username)
+        _audit(principal, AuditAction.TRIP_PLAN_UPDATED, "trip", resource_id=trip_key,
+               trip_key=trip_key, before=before, after=result)
+        return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada") from exc
 
@@ -179,11 +190,16 @@ async def create_observation(
     principal: Principal = Depends(require_permission(Permission.OBSERVATIONS_CREATE)),
 ) -> dict[str, Any]:
     try:
-        return _observation_service().create(
+        result = _observation_service().create(
             trip_key=trip_key, observation_type=payload.observation_type,
             content=payload.content, occurred_at=payload.occurred_at, principal=principal,
             stop_id=payload.stop_id, include_in_report=payload.include_in_report,
         )
+        _audit(principal, AuditAction.OBSERVATION_CREATED, "observation",
+               resource_id=result["id"], trip_key=trip_key,
+               after={"observation_type": result["type"],
+                      "include_in_report": result["include_in_report"]})
+        return result
     except (KeyError, ValueError) as exc:
         raise _observation_error(exc) from exc
 
@@ -195,9 +211,15 @@ async def correct_observation(
     principal: Principal = Depends(require_permission(Permission.OBSERVATIONS_CORRECT_OWN)),
 ) -> dict[str, Any]:
     try:
-        return _observation_service().correct(
+        result = _observation_service().correct(
             observation_id, content=payload.content, reason=payload.reason, principal=principal,
         )
+        current = result["observation"]
+        _audit(principal, AuditAction.OBSERVATION_CORRECTED, "observation",
+               resource_id=current["id"], trip_key=current["trip_key"],
+               before={"observation_id": observation_id}, after={"observation_id": current["id"]},
+               justification=payload.reason)
+        return result
     except (KeyError, ValueError, PermissionError) as exc:
         raise _observation_error(exc) from exc
 
@@ -209,9 +231,14 @@ async def void_observation(
     principal: Principal = Depends(require_permission(Permission.OBSERVATIONS_VOID_ANY)),
 ) -> dict[str, Any]:
     try:
-        return _observation_service().void(
+        result = _observation_service().void(
             observation_id, reason=payload.reason, principal=principal,
         )
+        _audit(principal, AuditAction.OBSERVATION_VOIDED, "observation",
+               resource_id=observation_id, trip_key=result["trip_key"],
+               before={"status": "ACTIVE"}, after={"status": "VOIDED"},
+               justification=payload.reason)
+        return result
     except (KeyError, ValueError) as exc:
         raise _observation_error(exc) from exc
 
@@ -231,9 +258,13 @@ async def justify_stop(
 ) -> dict[str, Any]:
     from app.services.journey_observation import get_journey_observation_service
     try:
-        return get_journey_observation_service(
+        result = get_journey_observation_service(
             trip_operations_service.repository
         ).justify_stop(stop_id, payload.reason, payload.justification, principal.username)
+        _audit(principal, AuditAction.STOP_JUSTIFIED, "stop", resource_id=stop_id,
+               trip_key=result["trip_key"], after={"reason": payload.reason},
+               justification=payload.justification)
+        return result
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Parada não encontrada") from exc
 
@@ -252,7 +283,7 @@ async def report_data(trip_key: str) -> dict[str, Any]:
 @router.post("/trips/{trip_key}/report")
 async def generate_report(
     trip_key: str,
-    _principal: Principal = Depends(require_permission(Permission.REPORTS_GENERATE)),
+    principal: Principal = Depends(require_permission(Permission.REPORTS_GENERATE)),
 ) -> FileResponse:
     import re
     from pathlib import Path
@@ -267,6 +298,8 @@ async def generate_report(
         with pdf_path.open("rb") as generated_pdf:
             if generated_pdf.read(5) != b"%PDF-":
                 raise HTTPException(status_code=503, detail="Não foi possível gerar o PDF neste momento")
+        _audit(principal, AuditAction.REPORT_GENERATED, "trip_report", resource_id=trip_key,
+               trip_key=trip_key, metadata={"format": "PDF", "success": True})
         safe_key = re.sub(r"[^A-Za-z0-9_-]+", "-", trip_key).strip("-")[:80] or "viagem"
         return FileResponse(pdf_path, media_type="application/pdf", filename=f"relatorio-viagem-{safe_key}.pdf")
     except KeyError as exc:
@@ -294,6 +327,15 @@ async def manual_action(
         trip_operations_service.manual_action(
             trip_key, payload.action, payload.justification, principal.username, payload.corrections
         )
+        mapped = {
+            "finalize": AuditAction.TRIP_FINALIZED, "reopen": AuditAction.TRIP_REOPENED,
+            "undo_detection": AuditAction.TRIP_STATUS_CORRECTED,
+            "correct_times": AuditAction.TRIP_STATUS_CORRECTED,
+        }
+        _audit(principal, mapped[payload.action], "trip", resource_id=trip_key,
+               trip_key=trip_key, after={"action": payload.action,
+                                         "corrections": payload.corrections},
+               justification=payload.justification)
         return trip_operations_service.detail(trip_key) or {}
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada") from exc
@@ -305,13 +347,17 @@ async def manual_action(
 async def assign_route(
     trip_key: str,
     payload: RouteAssignmentRequest,
-    _principal: Principal = Depends(require_permission(Permission.TRIPS_ASSIGN_ROUTE)),
+    principal: Principal = Depends(require_permission(Permission.TRIPS_ASSIGN_ROUTE)),
 ) -> dict[str, Any]:
     route = trip_operations_service.repository.route(payload.route_id)
     if not route or not route["active"]:
         raise HTTPException(status_code=404, detail="Rota ativa não encontrada")
     try:
+        before = trip_operations_service.repository.trip(trip_key) or {}
         trip_operations_service.repository.update_trip(trip_key, route_id=payload.route_id)
+        _audit(principal, AuditAction.TRIP_ROUTE_ASSIGNED, "trip", resource_id=trip_key,
+               trip_key=trip_key, before={"route_id": before.get("route_id")},
+               after={"route_id": payload.route_id})
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada") from exc
     return trip_operations_service.detail(trip_key) or {}
@@ -330,6 +376,9 @@ async def decide_return(
             candidate_id, payload.decision, principal.username,
             (payload.justification or "").strip() or None,
         )
+        _audit(principal, AuditAction.TRIP_RETURN_DECISION, "return_candidate",
+               resource_id=candidate_id, trip_key=candidate.get("parent_trip_key"),
+               after={"decision": payload.decision}, justification=payload.justification)
         detail_key = candidate.get("return_trip_key") or candidate["parent_trip_key"]
         return trip_operations_service.detail(detail_key) or {"return_candidate": candidate}
     except KeyError as exc:

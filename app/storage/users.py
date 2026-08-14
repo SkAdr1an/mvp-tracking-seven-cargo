@@ -6,6 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Callable
 
 from app.storage.sqlite_runtime import connect_existing_database
 
@@ -114,6 +115,7 @@ class UserRepository:
     def create(
         self, *, username: str, display_name: str, password_hash: str, role_code: str,
         created_by_user_id: str | None = None, user_id: str | None = None,
+        audit: Callable[[sqlite3.Connection, UserIdentity], None] | None = None,
     ) -> UserIdentity:
         normalized = normalize_username(username)
         name = display_name.strip()
@@ -137,9 +139,12 @@ class UserRepository:
                 raise ValueError("User could not be created") from exc
             row = connection.execute("SELECT * FROM users WHERE id=?", (identifier,)).fetchone()
             assert row is not None
-            return self._identity(connection, row)
+            result = self._identity(connection, row)
+            if audit: audit(connection, result)
+            return result
 
-    def change_password(self, user_id: str, password_hash: str, actor_user_id: str | None = None) -> UserIdentity:
+    def change_password(self, user_id: str, password_hash: str, actor_user_id: str | None = None,
+                        audit: Callable[[sqlite3.Connection, UserIdentity], None] | None = None) -> UserIdentity:
         if not password_hash.startswith("scrypt$"):
             raise ValueError("Password hash must use scrypt")
         now = utc_now()
@@ -153,9 +158,12 @@ class UserRepository:
             self._revoke_sessions(connection, user_id)
             row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             assert row is not None
-            return self._identity(connection, row)
+            result = self._identity(connection, row)
+            if audit: audit(connection, result)
+            return result
 
-    def change_role(self, user_id: str, role_code: str, actor_user_id: str | None = None) -> UserIdentity:
+    def change_role(self, user_id: str, role_code: str, actor_user_id: str | None = None,
+                    audit: Callable[[sqlite3.Connection, UserIdentity], None] | None = None) -> UserIdentity:
         now = utc_now()
         with self._connect() as connection:
             current = connection.execute("SELECT role_id,status FROM users WHERE id=?", (user_id,)).fetchone()
@@ -172,9 +180,12 @@ class UserRepository:
             self._revoke_sessions(connection, user_id)
             row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             assert row is not None
-            return self._identity(connection, row)
+            result = self._identity(connection, row)
+            if audit: audit(connection, result)
+            return result
 
-    def inactivate(self, user_id: str, actor_user_id: str | None = None) -> UserIdentity:
+    def inactivate(self, user_id: str, actor_user_id: str | None = None,
+                   audit: Callable[[sqlite3.Connection, UserIdentity], None] | None = None) -> UserIdentity:
         now = utc_now()
         with self._connect() as connection:
             current = connection.execute("SELECT role_id,status FROM users WHERE id=?", (user_id,)).fetchone()
@@ -193,9 +204,12 @@ class UserRepository:
             self._revoke_sessions(connection, user_id)
             row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             assert row is not None
-            return self._identity(connection, row)
+            result = self._identity(connection, row)
+            if audit: audit(connection, result)
+            return result
 
-    def activate(self, user_id: str, actor_user_id: str | None = None) -> UserIdentity:
+    def activate(self, user_id: str, actor_user_id: str | None = None,
+                 audit: Callable[[sqlite3.Connection, UserIdentity], None] | None = None) -> UserIdentity:
         now = utc_now()
         with self._connect() as connection:
             cursor = connection.execute(
@@ -210,10 +224,13 @@ class UserRepository:
             self._revoke_sessions(connection, user_id)
             row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             assert row is not None
-            return self._identity(connection, row)
+            result = self._identity(connection, row)
+            if audit: audit(connection, result)
+            return result
 
     def update_display_name(
         self, user_id: str, display_name: str, actor_user_id: str | None = None,
+        audit: Callable[[sqlite3.Connection, UserIdentity], None] | None = None,
     ) -> UserIdentity:
         name = display_name.strip()
         if not name:
@@ -228,7 +245,9 @@ class UserRepository:
                 raise KeyError(user_id)
             row = connection.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
             assert row is not None
-            return self._identity(connection, row)
+            result = self._identity(connection, row)
+            if audit: audit(connection, result)
+            return result
 
     @staticmethod
     def _require_another_active_admin(connection: sqlite3.Connection, user_id: str) -> None:

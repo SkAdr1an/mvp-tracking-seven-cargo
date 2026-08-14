@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field, model_validator
 from app.services.traffic_monitoring import ROUTE_GEOMETRIES, traffic_monitoring_service, traffic_repository
 from app.services.route_deviation import route_deviation_service
 from app.core.security import Permission, Principal, require_permission
+from app.core.config import get_settings
+from app.services.audit import AuditAction, AuditService
 
 
 router=APIRouter(prefix="/traffic",tags=["traffic"],dependencies=[Depends(require_permission(Permission.INCIDENTS_READ))])
@@ -100,7 +102,14 @@ async def create_manual(
     if not traffic_monitoring_service.repository.operations.route(payload.route_id): raise HTTPException(404,"Rota não encontrada")
     values = payload.model_dump()
     values["responsible_user"] = principal.username
-    return traffic_monitoring_service.create_manual(values)
+    result = traffic_monitoring_service.create_manual(values)
+    AuditService(get_settings().operations_database_path).record(
+        principal, AuditAction.INCIDENT_CREATED, "incident", resource_id=result["id"],
+        after={"route_id": result.get("route_id"), "category": result.get("category"),
+               "severity": result.get("severity"), "status": result.get("status")},
+        justification=payload.justification,
+    )
+    return result
 
 
 @router.patch("/manual/{incident_id}")
@@ -113,9 +122,21 @@ async def update_manual(
     if payload.action=="CONFIRMED": changes["status"]="CONFIRMED"
     elif payload.action=="CLOSED": changes["status"]="CLOSED"
     elif payload.action=="DISCARDED": changes["status"]="DISCARDED"
-    try: return traffic_repository.update_manual(
-        incident_id, changes, payload.action, principal.username, payload.justification
-    )
+    try:
+        before = traffic_repository.incident(incident_id)
+        result = traffic_repository.update_manual(
+            incident_id, changes, payload.action, principal.username, payload.justification
+        )
+        action = {"EDITED": AuditAction.INCIDENT_UPDATED,
+                  "CONFIRMED": AuditAction.INCIDENT_CONFIRMED,
+                  "CLOSED": AuditAction.INCIDENT_CLOSED,
+                  "DISCARDED": AuditAction.INCIDENT_DISCARDED}[payload.action]
+        AuditService(get_settings().operations_database_path).record(
+            principal, action, "incident", resource_id=incident_id,
+            before={key: before.get(key) for key in changes} if before else None,
+            after={key: result.get(key) for key in changes}, justification=payload.justification,
+        )
+        return result
     except KeyError as exc: raise HTTPException(404,"Ocorrência não encontrada") from exc
     except ValueError as exc: raise HTTPException(422,str(exc)) from exc
 

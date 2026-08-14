@@ -16,6 +16,7 @@ from app.core.security import (
     require_panel_session,
     verify_password,
 )
+from app.services.audit import AuditAction, AuditService
 
 
 router = APIRouter(prefix="/api/auth", tags=["panel-authentication"])
@@ -39,6 +40,7 @@ class SessionResponse(BaseModel):
 @router.post("/session", response_model=SessionResponse)
 async def login(payload: LoginRequest, response: Response) -> SessionResponse:
     settings = get_settings()
+    audit = AuditService(settings.operations_database_path)
     if (
         (not persistent_users_configured() and not settings.panel_users_file
          and (not settings.panel_admin_username or not settings.panel_admin_password_hash))
@@ -50,6 +52,7 @@ async def login(payload: LoginRequest, response: Response) -> SessionResponse:
     valid_user = admin is not None
     valid_password = verify_password(payload.password, configured[1] if configured else settings.panel_admin_password_hash)
     if not valid_user or not valid_password:
+        audit.record_login_failure(payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password")
     assert admin is not None
     try:
@@ -65,6 +68,8 @@ async def login(payload: LoginRequest, response: Response) -> SessionResponse:
         samesite="strict",
         path="/",
     )
+    audit.record(admin, AuditAction.AUTH_LOGIN_SUCCESS, "authentication",
+                 resource_id=admin.user_id, metadata={"success": True})
     return SessionResponse(
         username=payload.username,
         user_id=admin.user_id,
@@ -99,7 +104,7 @@ def _session_response(principal: Principal) -> SessionResponse:
 @router.delete("/session", status_code=204)
 async def logout(
     response: Response,
-    _principal: Principal = Depends(require_panel_session),
+    principal: Principal = Depends(require_panel_session),
     session_token: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> Response:
     try:
@@ -107,5 +112,8 @@ async def logout(
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail="Authentication service unavailable") from exc
     response.delete_cookie(PANEL_SESSION_COOKIE, path="/")
+    AuditService(get_settings().operations_database_path).record(
+        principal, AuditAction.AUTH_LOGOUT, "authentication", resource_id=principal.user_id
+    )
     response.status_code = 204
     return response

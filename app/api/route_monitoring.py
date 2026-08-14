@@ -9,6 +9,8 @@ from app.services.route_deviation import route_deviation_service
 from app.services.trip_operations import trip_operations_service
 from app.storage.operations import utc_now
 from app.core.security import Permission, Principal, require_permission
+from app.core.config import get_settings
+from app.services.audit import AuditAction, AuditService
 
 router = APIRouter(tags=["route-monitoring"])
 
@@ -88,9 +90,16 @@ async def acknowledge(
     principal: Principal = Depends(require_permission(Permission.INCIDENTS_EDIT_STRUCTURAL)),
 ):
     try:
-        return route_deviation_service.acknowledge(
+        result = route_deviation_service.acknowledge(
             deviation_id, principal.username, payload.reason, payload.justification
         )
+        AuditService(get_settings().operations_database_path).record(
+            principal, AuditAction.INCIDENT_CONFIRMED, "route_deviation",
+            resource_id=deviation_id, trip_key=result.get("trip_key"),
+            after={"acknowledged": True, "reason": payload.reason},
+            justification=payload.justification,
+        )
+        return result
     except KeyError as exc:
         raise HTTPException(404, "Desvio não encontrado") from exc
 
@@ -104,7 +113,14 @@ async def close(
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")
     try:
-        return route_deviation_service.close(deviation_id, principal.username, payload.justification)
+        result = route_deviation_service.close(deviation_id, principal.username, payload.justification)
+        AuditService(get_settings().operations_database_path).record(
+            principal, AuditAction.INCIDENT_CLOSED, "route_deviation",
+            resource_id=deviation_id, trip_key=result.get("trip_key"),
+            before={"status": "ACTIVE"}, after={"status": result.get("status")},
+            justification=payload.justification,
+        )
+        return result
     except KeyError as exc:
         raise HTTPException(404, "Desvio não encontrado") from exc
 
@@ -133,5 +149,10 @@ async def change_driver_association(
         utc_now(), "operator", "Associação de motorista alterada com confirmação explícita",
         metadata={"previous_driver": previous, "current_driver": current},
         justification=payload.justification, operator=principal.username,
+    )
+    AuditService(get_settings().operations_database_path).record(
+        principal, AuditAction.TRIP_DRIVER_ASSIGNED, "trip", resource_id=trip_key,
+        trip_key=trip_key, before={"driver": previous}, after={"driver": current},
+        justification=payload.justification,
     )
     return updated

@@ -1,4 +1,4 @@
-import type { AngelLiraAdminResponse, AngelLiraStationsResponse, FleetSnapshot, IntegrationStatus, ManagedUser, OperationalObservation, OperationalSitesResponse, OperationalTrip, PanelSession, PublicLinkCreated, PublicLinkStatus, RoutePaths, RoutePreview, TrafegusResult, TrafficSnapshot } from './types'
+import type { AngelLiraAdminResponse, AngelLiraStationsResponse, AuditResponse, FleetSnapshot, IntegrationStatus, ManagedUser, OperationalObservation, OperationalSitesResponse, OperationalTrip, PanelSession, PublicLinkCreated, PublicLinkStatus, RoutePaths, RoutePreview, TrafegusResult, TrafficSnapshot } from './types'
 
 const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : '')).replace(/\/$/, '')
 // Keep development panel authentication same-origin so the Strict HttpOnly
@@ -147,6 +147,8 @@ export const api = {
   createObservation: (tripKey:string,input:Record<string,unknown>) => panelRequest<OperationalObservation>(`/operations/trips/${encodeURIComponent(tripKey)}/observations`,{method:'POST',body:JSON.stringify(input)}) as Promise<OperationalObservation>,
   correctObservation: (id:string,input:{content:string;reason:string}) => panelRequest(`/operations/observations/${id}/correction`,{method:'POST',body:JSON.stringify(input)}),
   voidObservation: (id:string,reason:string) => panelRequest(`/operations/observations/${id}/void`,{method:'POST',body:JSON.stringify({reason})}),
+  audit: (filters:Record<string,string>={}) => panelRequest<AuditResponse>(`/api/audit?${new URLSearchParams(filters)}`) as Promise<AuditResponse>,
+  tripAudit: (tripKey:string) => panelRequest<AuditResponse>(`/operations/trips/${encodeURIComponent(tripKey)}/audit`) as Promise<AuditResponse>,
 }
 
 export function trackingSocketUrl(): string {

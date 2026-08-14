@@ -11,6 +11,7 @@ import { Routes } from './pages/Routes'
 import { Trafegus } from './pages/Trafegus'
 import { AngelLiraAdmin } from './pages/AngelLiraAdmin'
 import { UsersAdmin } from './pages/UsersAdmin'
+import { Audit } from './pages/Audit'
 import { SessionContext, hasPermission } from './permissions'
 import type { Driver, Page, PanelSession } from './types'
 import './mobile-shell.css'
@@ -73,6 +74,7 @@ function AuthenticatedApp({ session, onLogout }: { session: PanelSession; onLogo
         {page === 'integrations' && <Integrations />}
         {page === 'angellira' && hasPermission(session,'settings:read') && <AngelLiraAdmin />}
         {page === 'users' && hasPermission(session,'users:read') && <UsersAdmin />}
+        {page === 'audit' && hasPermission(session,'audit:read-full') && <Audit />}
         </ContentErrorBoundary>
       </div>
     </main>
