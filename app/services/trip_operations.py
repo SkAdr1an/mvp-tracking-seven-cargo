@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 TRIP_STATES = {
     "PROGRAMADA", "NA_ORIGEM", "EM_CARREGAMENTO", "EM_VIAGEM",
     "NO_DESTINO", "FINALIZADA_NO_SISTEMA", "REABERTA_MANUALMENTE",
-    "RETORNO_SEVEN_CONFIRMADO", "RETORNO_CONCLUIDO",
+    "RETORNO_SEVEN_CONFIRMADO", "RETORNO_CONCLUIDO", "CANCELADA",
 }
 
 BETIM_JABOATAO_ROUTE = {
@@ -265,6 +265,8 @@ class TripOperationsService:
         route = recognition["route"]
         trip = self.repository.ensure_trip(key, update.plate, update.trip_id, route["id"] if route else None)
         initial_state = trip.get("state")
+        if initial_state == "CANCELADA" or trip.get("archived_at"):
+            return {"accepted": False, "reason": "trip_inactive", "trip": self.repository.trip(key)}
         if not (-90 <= update.latitude <= 90 and -180 <= update.longitude <= 180):
             return {
                 "accepted": False,
@@ -432,6 +434,8 @@ class TripOperationsService:
         trip = self.repository.trip(trip_key)
         if not trip:
             raise KeyError(trip_key)
+        if trip.get("state") == "CANCELADA" or trip.get("archived_at"):
+            raise ValueError("Viagem inativa não permite ações operacionais")
         if len(justification.strip()) < 5:
             raise ValueError("A justificativa deve ter pelo menos 5 caracteres")
         now = datetime.now(timezone.utc).isoformat()

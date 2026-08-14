@@ -143,6 +143,15 @@ class FleetTrackingService:
                 if speed_kmh is None:
                     speed_kmh = _speed(record)
                 trip_id = _first_value(record, _TRIP_ID_KEYS) or _first_value(metadata, _TRIP_ID_KEYS)
+                existing_trip = trip_operations_service.repository.trip(
+                    trip_operations_service.trip_key(
+                        plate, str(trip_id) if trip_id not in (None, "") else None
+                    )
+                )
+                if existing_trip and (
+                    existing_trip.get("state") == "CANCELADA" or existing_trip.get("archived_at")
+                ):
+                    continue
                 destination = _destination(metadata)
                 sla = _first_datetime(metadata, _SLA_KEYS)
                 route_description = _route_description(metadata)

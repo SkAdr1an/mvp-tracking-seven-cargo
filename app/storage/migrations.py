@@ -13,7 +13,7 @@ from app.services.operational_sites import AUTHORIZED_SITE_ALIASES, SITE_SCHEMA
 from app.services.trip_operations import BETIM_JABOATAO_ROUTE, SAO_BERNARDO_CONTAGEM_ROUTE
 
 
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIRECTORY = PROJECT_ROOT / "migrations"
 REQUIRED_TABLES = frozenset({
@@ -51,6 +51,8 @@ REQUIRED_INDEXES = frozenset({
     "idx_audit_events_trip_time",
     "idx_audit_events_action_time",
     "idx_audit_events_resource",
+    "idx_operational_trips_state_archived",
+    "idx_operational_trips_archived_at",
 })
 
 
@@ -172,6 +174,12 @@ def _migration_script(connection: sqlite3.Connection) -> str:
         "operational_trips": {
             "loaded_at": "ALTER TABLE operational_trips ADD COLUMN loaded_at TEXT",
             "trailer_plate": "ALTER TABLE operational_trips ADD COLUMN trailer_plate TEXT",
+            "cancelled_at": "ALTER TABLE operational_trips ADD COLUMN cancelled_at TEXT",
+            "cancelled_by_user_id": "ALTER TABLE operational_trips ADD COLUMN cancelled_by_user_id TEXT REFERENCES users(id)",
+            "cancelled_reason": "ALTER TABLE operational_trips ADD COLUMN cancelled_reason TEXT",
+            "archived_at": "ALTER TABLE operational_trips ADD COLUMN archived_at TEXT",
+            "archived_by_user_id": "ALTER TABLE operational_trips ADD COLUMN archived_by_user_id TEXT REFERENCES users(id)",
+            "archive_reason": "ALTER TABLE operational_trips ADD COLUMN archive_reason TEXT",
         },
         "traffic_incidents": {
             "publicly_visible": "ALTER TABLE traffic_incidents ADD COLUMN publicly_visible INTEGER NOT NULL DEFAULT 0",
@@ -246,6 +254,10 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     scripts.append("""
 CREATE INDEX IF NOT EXISTS idx_incidents_public_route
 ON traffic_incidents(route_id, publicly_visible, status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_operational_trips_state_archived
+ON operational_trips(state, archived_at);
+CREATE INDEX IF NOT EXISTS idx_operational_trips_archived_at
+ON operational_trips(archived_at);
 CREATE TABLE IF NOT EXISTS panel_sessions (
     id TEXT PRIMARY KEY,
     token_hash TEXT NOT NULL UNIQUE,

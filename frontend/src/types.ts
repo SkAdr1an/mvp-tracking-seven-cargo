@@ -170,7 +170,7 @@ export interface OperationalDiagnostic {
 
 export interface RouteProgress { geometry_version:string;total_distance_km:number;advanced_distance_km:number;remaining_distance_km:number;progress_percent:number;return_distance_km?:number|null;route_state:'ON_ROUTE'|'OUTSIDE'|'STALE';confidence:'HIGH'|'MEDIUM'|'LOW'|'UNAVAILABLE';position_at?:string|null;speed_kmh?:number|null;speed_state:'CURRENT'|'STALE'|'UNAVAILABLE';reason?:string }
 
-export type OperationalState = 'PROGRAMADA' | 'NA_ORIGEM' | 'EM_CARREGAMENTO' | 'EM_VIAGEM' | 'NO_DESTINO' | 'FINALIZADA_NO_SISTEMA' | 'REABERTA_MANUALMENTE' | 'RETORNO_SEVEN_CONFIRMADO' | 'RETORNO_CONCLUIDO'
+export type OperationalState = 'PROGRAMADA' | 'NA_ORIGEM' | 'EM_CARREGAMENTO' | 'EM_VIAGEM' | 'NO_DESTINO' | 'FINALIZADA_NO_SISTEMA' | 'REABERTA_MANUALMENTE' | 'RETORNO_SEVEN_CONFIRMADO' | 'RETORNO_CONCLUIDO' | 'CANCELADA'
 
 export interface ReturnCandidate {
   id: number
@@ -234,6 +234,12 @@ export interface OperationalTrip {
   arrived_destination_at?: string | null
   finished_at?: string | null
   finish_type?: 'automatic' | 'manual' | null
+  cancelled_at?: string | null
+  cancelled_by_user_id?: string | null
+  cancelled_reason?: string | null
+  archived_at?: string | null
+  archived_by_user_id?: string | null
+  archive_reason?: string | null
   route?: OperationalRoute | null
   events?: OperationalEvent[]
   stops?: { id: number; started_at?: string | null; ended_at?: string | null }[]

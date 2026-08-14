@@ -20,16 +20,16 @@ def principal() -> Principal:
     return Principal("maria", Role.GR, display_name="Maria Souza")
 
 
-def test_schema_13_creates_append_only_audit_indexes(tmp_path):
+def test_current_schema_preserves_append_only_audit_indexes(tmp_path):
     database = tmp_path / "operations.db"
     migrate_database(database)
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == 13
+        assert connection.execute("SELECT MAX(version) FROM schema_migrations").fetchone()[0] == SCHEMA_VERSION
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(audit_events)")}
         assert {"idx_audit_events_occurred_at", "idx_audit_events_actor_time",
                 "idx_audit_events_trip_time", "idx_audit_events_action_time",
                 "idx_audit_events_resource"} <= indexes
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION >= 13
     migrate_database(database)
 
 

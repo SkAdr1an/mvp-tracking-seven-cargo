@@ -18,6 +18,9 @@ def test_mutating_operational_endpoints_require_panel_session(monkeypatch):
         ("post", "/deviations/1/acknowledge", {}),
         ("post", "/deviations/1/close", {}),
         ("post", "/operations/trips/missing/driver-association", {}),
+        ("post", "/operations/trips/missing/cancel", {"reason": "motivo válido"}),
+        ("post", "/operations/trips/missing/archive", {"reason": "motivo válido"}),
+        ("post", "/operations/trips/missing/unarchive", {"reason": "motivo válido"}),
     ]
     for method, path, payload in requests:
         assert client.request(method, path, json=payload).status_code == 401

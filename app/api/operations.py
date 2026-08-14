@@ -30,6 +30,10 @@ class ManualActionRequest(BaseModel):
     corrections: dict[str, str | None] = Field(default_factory=dict)
 
 
+class TripLifecycleRequest(BaseModel):
+    reason: str = Field(min_length=5, max_length=1000)
+
+
 class RouteAssignmentRequest(BaseModel):
     route_id: str = Field(min_length=1, max_length=100)
 
@@ -342,6 +346,63 @@ async def manual_action(
         raise HTTPException(status_code=404, detail="Viagem operacional não encontrada") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _lifecycle_error(exc: Exception) -> HTTPException:
+    from app.services.trip_lifecycle import TripLifecycleConflict
+    if isinstance(exc, KeyError):
+        return HTTPException(status_code=404, detail="Viagem operacional não encontrada")
+    if isinstance(exc, TripLifecycleConflict):
+        return HTTPException(status_code=409, detail=str(exc))
+    return HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/trips/{trip_key}/cancel")
+async def cancel_trip(
+    trip_key: str,
+    payload: TripLifecycleRequest,
+    principal: Principal = Depends(require_permission(Permission.TRIPS_CANCEL)),
+) -> dict[str, Any]:
+    from app.services.trip_lifecycle import TripLifecycleService
+    try:
+        TripLifecycleService(trip_operations_service.repository).cancel(
+            trip_key, payload.reason, principal
+        )
+        return trip_operations_service.detail(trip_key) or {}
+    except (KeyError, ValueError) as exc:
+        raise _lifecycle_error(exc) from exc
+
+
+@router.post("/trips/{trip_key}/archive")
+async def archive_trip(
+    trip_key: str,
+    payload: TripLifecycleRequest,
+    principal: Principal = Depends(require_permission(Permission.TRIPS_ARCHIVE)),
+) -> dict[str, Any]:
+    from app.services.trip_lifecycle import TripLifecycleService
+    try:
+        TripLifecycleService(trip_operations_service.repository).archive(
+            trip_key, payload.reason, principal
+        )
+        return trip_operations_service.detail(trip_key) or {}
+    except (KeyError, ValueError) as exc:
+        raise _lifecycle_error(exc) from exc
+
+
+@router.post("/trips/{trip_key}/unarchive")
+async def unarchive_trip(
+    trip_key: str,
+    payload: TripLifecycleRequest,
+    principal: Principal = Depends(require_permission(Permission.TRIPS_ARCHIVE)),
+) -> dict[str, Any]:
+    from app.services.trip_lifecycle import TripLifecycleService
+    try:
+        TripLifecycleService(trip_operations_service.repository).unarchive(
+            trip_key, payload.reason, principal
+        )
+        return trip_operations_service.detail(trip_key) or {}
+    except (KeyError, ValueError) as exc:
+        raise _lifecycle_error(exc) from exc
 
 
 @router.post("/trips/{trip_key}/route")

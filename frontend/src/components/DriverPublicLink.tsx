@@ -56,7 +56,7 @@ export function DriverPublicLink({ trip }: { trip: OperationalTrip }) {
     const previous = linkRef.current
     if (!current) return
     const merged = mergePublicLinkStatus(previous, current)
-    const finished = trip.state === 'FINALIZADA_NO_SISTEMA' || trip.state === 'RETORNO_CONCLUIDO'
+    const finished = trip.state === 'FINALIZADA_NO_SISTEMA' || trip.state === 'RETORNO_CONCLUIDO' || trip.state === 'CANCELADA'
     const replaced = Boolean(previous?.url && String(previous.id) !== String(current.id))
     const unavailable = linkIsUnavailable(merged) || finished
     storeLink(unavailable ? { ...merged, url: null, active: false } : merged)

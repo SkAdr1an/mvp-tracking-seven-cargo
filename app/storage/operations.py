@@ -73,6 +73,12 @@ CREATE TABLE IF NOT EXISTS operational_trips (
     arrived_destination_at TEXT,
     finished_at TEXT,
     finish_type TEXT,
+    cancelled_at TEXT,
+    cancelled_by_user_id TEXT REFERENCES users(id),
+    cancelled_reason TEXT,
+    archived_at TEXT,
+    archived_by_user_id TEXT REFERENCES users(id),
+    archive_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -300,12 +306,17 @@ class OperationsRepository:
                    (trip_key, provider_trip_id, plate, route_id, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(trip_key) DO UPDATE SET
-                     provider_trip_id=COALESCE(excluded.provider_trip_id, provider_trip_id),
+                     provider_trip_id=CASE
+                       WHEN state='CANCELADA' OR archived_at IS NOT NULL THEN provider_trip_id
+                       ELSE COALESCE(excluded.provider_trip_id, provider_trip_id) END,
                      route_id=CASE
+                       WHEN state='CANCELADA' OR archived_at IS NOT NULL THEN route_id
                        WHEN route_id IS NULL OR route_id=excluded.route_id
                        THEN COALESCE(excluded.route_id,route_id)
                        ELSE route_id END,
-                     updated_at=excluded.updated_at""",
+                     updated_at=CASE
+                       WHEN state='CANCELADA' OR archived_at IS NOT NULL THEN updated_at
+                       ELSE excluded.updated_at END""",
                 (trip_key, provider_trip_id, plate, route_id, now, now),
             )
             row = connection.execute("SELECT * FROM operational_trips WHERE trip_key = ?", (trip_key,)).fetchone()
@@ -316,9 +327,12 @@ class OperationsRepository:
             row = connection.execute("SELECT * FROM operational_trips WHERE trip_key = ?", (trip_key,)).fetchone()
         return self._trip(row) if row else None
 
-    def trips(self) -> list[dict[str, Any]]:
+    def trips(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+        where = "" if include_archived else " WHERE archived_at IS NULL"
         with self.connect() as connection:
-            rows = connection.execute("SELECT * FROM operational_trips ORDER BY updated_at DESC").fetchall()
+            rows = connection.execute(
+                "SELECT * FROM operational_trips" + where + " ORDER BY updated_at DESC"
+            ).fetchall()
         return [self._trip(row) for row in rows]
 
     def trip_for_provider(self, provider_trip_id: str | None, plate: str) -> dict[str, Any] | None:
@@ -343,6 +357,8 @@ class OperationsRepository:
             "destination_candidate_count", "destination_exit_count", "origin_entered_at",
             "arrived_origin_at", "started_at", "destination_entered_at",
             "loaded_at", "trailer_plate", "arrived_destination_at", "finished_at", "finish_type",
+            "cancelled_at", "cancelled_by_user_id", "cancelled_reason",
+            "archived_at", "archived_by_user_id", "archive_reason",
         }
         clean = {key: value for key, value in fields.items() if key in allowed}
         clean["updated_at"] = utc_now()
@@ -632,7 +648,10 @@ class OperationsRepository:
 
     @staticmethod
     def _trip(row: sqlite3.Row) -> dict[str, Any]:
-        value = dict(row)
+        return OperationsRepository._trip_from_mapping(dict(row))
+
+    @staticmethod
+    def _trip_from_mapping(value: dict[str, Any]) -> dict[str, Any]:
         value["driver_divergence"] = bool(value["driver_divergence"])
         return value
 

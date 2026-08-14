@@ -108,6 +108,10 @@ export const api = {
     panelRequest<OperationalTrip>(`/operations/trips/${encodeURIComponent(tripKey)}/actions`, {
       method: 'POST', body: JSON.stringify(input),
     }) as Promise<OperationalTrip>,
+  tripLifecycle: (tripKey: string, action: 'cancel'|'archive'|'unarchive', reason: string) =>
+    panelRequest<OperationalTrip>(`/operations/trips/${encodeURIComponent(tripKey)}/${action}`, {
+      method: 'POST', body: JSON.stringify({ reason }),
+    }) as Promise<OperationalTrip>,
   returnDecision: (candidateId: number, input: { decision: 'YES' | 'NO' | 'LATER'; operator?: string; justification?: string }) =>
     panelRequest<OperationalTrip>(`/operations/return-candidates/${candidateId}/decision`, {
       method: 'POST', body: JSON.stringify(input),
