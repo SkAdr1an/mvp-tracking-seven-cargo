@@ -16,7 +16,15 @@ test('driver history uses internal authenticated endpoints and stable identity',
 test('history exposes filters, pagination-ready API and on-demand PDF',()=>{
   for(const label of ['Início','Fim','Rota','Cliente','Status'])assert.match(history,new RegExp(label))
   assert.match(history,/Baixar relatório em PDF/)
-  assert.match(api,/driverReportUrl/)
+  assert.match(api,/driverReport:/)
+  assert.match(api,/response\.blob\(\)/)
+  assert.match(api,/credentials: 'include'/)
+  assert.doesNotMatch(api,/driverReportUrl/)
+  assert.match(history,/disabled=\{reportLoading\}/)
+  assert.match(history,/URL\.createObjectURL\(blob\)/)
+  assert.match(history,/trip\.source_created_at/)
+  assert.match(history,/Não disponível/)
+  assert.doesNotMatch(history,/report\.json/)
 })
 test('pending evaluations are a dedicated sidebar page with complete form',()=>{
   assert.match(sidebar,/Avaliações pendentes/)
@@ -30,6 +38,8 @@ test('history pages remain responsive without external navigation',()=>{
 })
 test('empty and unavailable states never expose raw Not Found',()=>{
   assert.match(history,/Nenhum motorista consolidado até o momento/)
+  assert.match(history,/Página \{page\} de \{totalPages\}/)
+  assert.match(history,/setPage\(value=>Math\.min\(totalPages,value\+1\)\)/)
   assert.match(history,/Histórico indisponível\. Verifique se a API está em execução/)
   assert.doesNotMatch(history,/setError\(reason\.message\)/)
 })

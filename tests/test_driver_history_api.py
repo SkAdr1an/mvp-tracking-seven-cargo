@@ -10,6 +10,7 @@ from app.api.driver_history import router
 from app.core.security import require_panel_session
 from app.storage.feature_migrations import apply_migration_009
 from app.storage.operations import OperationsRepository
+from app.services.driver_history import DriverHistoryService
 
 
 def app_for(repository: OperationsRepository, monkeypatch, *, authenticated: bool = True) -> TestClient:
@@ -50,3 +51,27 @@ def test_empty_history_request_does_not_backfill(tmp_path: Path, monkeypatch):
     assert response.status_code == 200 and response.json()["total"] == 0
     with repository.connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM driver_trip_history").fetchone()[0] == 0
+
+
+def test_report_returns_pdf_attachment_named_after_driver(tmp_path: Path, monkeypatch):
+    repository = OperationsRepository(tmp_path / "report.sqlite")
+    repository.ensure_trip("legacy-trip", "ABC1D23", "123", None)
+    repository.update_trip("legacy-trip", current_driver="João da Silva", state="FINALIZADA_NO_SISTEMA")
+    apply_migration_009(repository.database_path, disposable=True)
+    record = DriverHistoryService(repository).sync_trip("legacy-trip", source="test")
+
+    def fake_pdf(html_path: Path) -> Path:
+        pdf_path = html_path.with_suffix(".pdf")
+        pdf_path.write_bytes(b"%PDF-1.4\n%%EOF")
+        return pdf_path
+
+    monkeypatch.setattr(api_module, "render_html_to_pdf", fake_pdf)
+    response = app_for(repository, monkeypatch).get(
+        f"/api/driver-history/drivers/{record['driver_id']}/report.pdf"
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="historico-motorista-joao-da-silva.pdf"'
+    )
+    assert response.content.startswith(b"%PDF-")

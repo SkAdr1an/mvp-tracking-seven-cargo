@@ -89,6 +89,30 @@ async function downloadPanelPdf(path: string): Promise<void> {
   } finally { URL.revokeObjectURL(url) }
 }
 
+async function panelBlob(path: string): Promise<{blob: Blob; filename: string}> {
+  const requestGeneration = panelSessionGeneration
+  const response = await fetch(`${PANEL_API_URL}${path}`, { credentials: 'include' })
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null)
+    if (response.status === 401 && requestGeneration === panelSessionGeneration) {
+      window.dispatchEvent(new CustomEvent(ADMIN_SESSION_EXPIRED_EVENT, {
+        detail: { returnPath: `${window.location.pathname}${window.location.search}` },
+      }))
+      throw new Error('Sua sessão expirou. Entre novamente.')
+    }
+    throw new Error(typeof payload?.detail === 'string'
+      ? payload.detail
+      : `Não foi possível gerar o relatório (${response.status}).`)
+  }
+  const contentType = response.headers.get('Content-Type') || ''
+  if (!contentType.toLowerCase().startsWith('application/pdf')) {
+    throw new Error('A API não retornou um PDF válido.')
+  }
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const filename = disposition.match(/filename="([^"]+)"/i)?.[1] || 'historico-motorista.pdf'
+  return { blob: await response.blob(), filename }
+}
+
 export const api = {
   health: () => request<{ status: string }>('/health'),
   integrations: () => request<IntegrationStatus>('/integrations/status'),
@@ -153,13 +177,13 @@ export const api = {
   voidObservation: (id:string,reason:string) => panelRequest(`/operations/observations/${id}/void`,{method:'POST',body:JSON.stringify({reason})}),
   audit: (filters:Record<string,string>={}) => panelRequest<AuditResponse>(`/api/audit?${new URLSearchParams(filters)}`) as Promise<AuditResponse>,
   tripAudit: (tripKey:string) => panelRequest<AuditResponse>(`/operations/trips/${encodeURIComponent(tripKey)}/audit`) as Promise<AuditResponse>,
-  driverHistory: (search='') => panelRequest<Paged<DriverHistorySummary>>(`/api/driver-history/drivers?search=${encodeURIComponent(search)}`) as Promise<Paged<DriverHistorySummary>>,
+  driverHistory: (search='',page=1,pageSize=25) => panelRequest<Paged<DriverHistorySummary>>(`/api/driver-history/drivers?search=${encodeURIComponent(search)}&page=${page}&page_size=${pageSize}`) as Promise<Paged<DriverHistorySummary>>,
   driverProfile: (id:string) => panelRequest<DriverProfile>(`/api/driver-history/drivers/${encodeURIComponent(id)}`) as Promise<DriverProfile>,
   driverTrips: (id:string,query='') => panelRequest<Paged<DriverHistoryTrip>>(`/api/driver-history/drivers/${encodeURIComponent(id)}/trips${query?`?${query}`:''}`) as Promise<Paged<DriverHistoryTrip>>,
   pendingEvaluations: (query='') => panelRequest<Paged<PendingEvaluation>>(`/api/driver-history/pending-evaluations${query?`?${query}`:''}`) as Promise<Paged<PendingEvaluation>>,
   evaluateTrip: (tripKey:string,input:Record<string,unknown>) => panelRequest(`/api/driver-history/trips/${encodeURIComponent(tripKey)}/evaluation`,{method:'POST',body:JSON.stringify(input)}),
   adjustPunctuality: (tripKey:string,input:Record<string,unknown>) => panelRequest(`/api/driver-history/trips/${encodeURIComponent(tripKey)}/punctuality-adjustments`,{method:'POST',body:JSON.stringify(input)}),
-  driverReportUrl: (id:string,query='') => `${PANEL_API_URL}/api/driver-history/drivers/${encodeURIComponent(id)}/report.pdf${query?`?${query}`:''}`,
+  driverReport: (id:string,query='') => panelBlob(`/api/driver-history/drivers/${encodeURIComponent(id)}/report.pdf${query?`?${query}`:''}`),
 }
 
 export function trackingSocketUrl(): string {

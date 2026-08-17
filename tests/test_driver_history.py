@@ -124,6 +124,44 @@ def test_same_name_is_never_automatically_merged(history):
     assert service.profile(first["driver_id"])["identity_status"] == "PENDING"
 
 
+def test_backfill_merges_only_compound_provider_identity_and_is_idempotent(history):
+    repository, service = history
+    for key in ("source-a", "source-b"):
+        repository.ensure_trip(key, "AAA1A11", key, None)
+        repository.update_trip(key, current_driver="Nome Composto", driver_source="provider:association")
+    assert service.backfill_internal_trips() == 2
+    listed = service.drivers(search="Nome Composto")
+    assert listed["total"] == 1 and listed["items"][0]["total_trips"] == 2
+    assert service.backfill_internal_trips() == 2
+    assert service.drivers(search="Nome Composto")["items"][0]["total_trips"] == 2
+    with repository.connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM driver_identity_links").fetchone()[0] == 1
+
+
+def test_consolidation_and_report_use_distributed_operational_fields(history):
+    repository, service = history
+    repository.ensure_trip("trip-rich", "AAA1A11", "900", None)
+    repository.update_trip(
+        "trip-rich", current_driver="Motorista Completo", driver_source="provider:association",
+        loaded_at="2026-08-01T10:00:00+00:00", started_at="2026-08-01T11:00:00+00:00",
+        arrived_destination_at="2026-08-01T14:30:00+00:00", finished_at="2026-08-01T15:00:00+00:00",
+        trailer_plate="BBB2B22", state="FINALIZADA_NO_SISTEMA",
+    )
+    now = datetime.now(timezone.utc).isoformat()
+    with repository.connect() as connection:
+        connection.execute(
+            """INSERT INTO trip_plans(trip_key,scheduled_arrival_at,source,updated_by,created_at,updated_at)
+            VALUES(?,?,?,?,?,?)""", ("trip-rich", "2026-08-01T14:00:00+00:00", "manual", "planejador", now, now),
+        )
+    record = service.sync_trip("trip-rich")
+    assert record["loaded_at"] == "2026-08-01T10:00:00+00:00"
+    assert record["scheduled_arrival_at"] == "2026-08-01T14:00:00+00:00"
+    assert record["automatic_punctuality"] == "LATE" and record["automatic_delay_minutes"] == 30
+    report = service.report_html(record["driver_id"], service.trips(record["driver_id"])["items"])
+    for expected in ("01/08/2026", "BBB2B22", "Atrasada", "1 viagem", "Não informado"):
+        assert expected in report
+
+
 def test_manual_identity_link_and_correction_are_auditable(history):
     repository, service = history
     trip(repository, "trip-c", driver="Maria A"); trip(repository, "trip-d", driver="Maria B")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+import unicodedata
 from pathlib import Path
 from typing import Literal
 
@@ -17,6 +18,14 @@ from app.services.trip_operations import trip_operations_service
 
 
 router = APIRouter(prefix="/api/driver-history", tags=["driver-history"])
+
+
+def _report_filename(driver_name: str) -> str:
+    ascii_name = unicodedata.normalize("NFKD", driver_name).encode("ascii", "ignore").decode("ascii")
+    slug = "-".join("".join(
+        character.lower() if character.isalnum() else " " for character in ascii_name
+    ).split())
+    return f"historico-motorista-{slug or 'sem-nome'}.pdf"
 
 
 def service() -> DriverHistoryService:
@@ -144,9 +153,11 @@ def download_report(background_tasks: BackgroundTasks, driver_id: str, start: st
                     _operator: str = Depends(require_panel_session)) -> FileResponse:
     folder = Path(tempfile.mkdtemp(prefix="seven-driver-report-"))
     try:
-        values = service().trips(driver_id, start=start, end=end, route=route, customer=customer, status=status, page=1, page_size=10000)
+        history = service()
+        profile = history.profile(driver_id)
+        values = history.trips(driver_id, start=start, end=end, route=route, customer=customer, status=status, page=1, page_size=10000)
         html_path = folder / "report.html"
-        html_path.write_text(service().report_html(driver_id, values["items"], include_sensitive=include_sensitive,
+        html_path.write_text(history.report_html(driver_id, values["items"], include_sensitive=include_sensitive,
             filters={"início":start,"fim":end,"rota":route,"cliente":customer,"status":status}), encoding="utf-8")
         pdf_path = render_html_to_pdf(html_path)
     except KeyError as exc:
@@ -154,4 +165,5 @@ def download_report(background_tasks: BackgroundTasks, driver_id: str, start: st
     except PdfRenderError as exc:
         shutil.rmtree(folder, ignore_errors=True); raise HTTPException(503, str(exc)) from exc
     background_tasks.add_task(shutil.rmtree, folder, True)
-    return FileResponse(pdf_path, media_type="application/pdf", filename=f"historico-{driver_id}.pdf", background=background_tasks)
+    return FileResponse(pdf_path, media_type="application/pdf", filename=_report_filename(profile["name"]),
+                        content_disposition_type="attachment", background=background_tasks)

@@ -262,6 +262,24 @@ CREATE TABLE IF NOT EXISTS driver_internal_notes (
  id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id TEXT NOT NULL REFERENCES driver_profiles(id),
  note TEXT NOT NULL, responsible TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_driver_notes_driver ON driver_internal_notes(driver_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    user_id TEXT,
+    user_name TEXT,
+    user_role TEXT,
+    action_type TEXT NOT NULL,
+    resource_type TEXT,
+    resource_id TEXT,
+    trip_key TEXT,
+    details TEXT,
+    change_summary TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_user ON audit_events(user_id, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit_events(action_type, timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_events_trip ON audit_events(trip_key, timestamp DESC);
 """
 
 

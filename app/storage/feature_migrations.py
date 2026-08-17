@@ -13,12 +13,18 @@ REQUIRED_009_TABLES = {
     "driver_evaluation_history", "punctuality_adjustments", "driver_internal_notes",
     "driver_identity_links", "driver_trip_history_changes",
 }
+REQUIRED_009_COLUMNS = {
+    "source_created_at": "TEXT", "loaded_at": "TEXT", "scheduled_arrival_at": "TEXT",
+    "eta_at": "TEXT", "arrived_destination_at": "TEXT", "package_count": "INTEGER",
+    "responsible": "TEXT", "driver_source": "TEXT",
+}
 
 
 def migration_009_pending(database_path: str | Path) -> bool:
     with sqlite3.connect(Path(database_path)) as connection:
         present = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    return not REQUIRED_009_TABLES.issubset(present)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(driver_trip_history)")} if "driver_trip_history" in present else set()
+    return not REQUIRED_009_TABLES.issubset(present) or not REQUIRED_009_COLUMNS.keys() <= columns
 
 
 def apply_migration_009(database_path: str | Path, *, disposable: bool = False) -> None:
@@ -28,6 +34,10 @@ def apply_migration_009(database_path: str | Path, *, disposable: bool = False) 
     with sqlite3.connect(target) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executescript(MIGRATION_009.read_text(encoding="utf-8"))
+        present = {row[1] for row in connection.execute("PRAGMA table_info(driver_trip_history)")}
+        for column, kind in REQUIRED_009_COLUMNS.items():
+            if column not in present:
+                connection.execute(f"ALTER TABLE driver_trip_history ADD COLUMN {column} {kind}")
 
 
 def rollback_migration_009(database_path: str | Path, *, disposable: bool = False) -> None:

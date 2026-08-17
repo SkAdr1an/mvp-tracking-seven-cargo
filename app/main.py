@@ -31,6 +31,7 @@ from app.api.operational_sites import router as operational_sites_router
 from app.api.users import router as users_router
 from app.api.audit import router as audit_router
 from app.api.driver_history import router as driver_history_router
+from app.api.audit import router as audit_router
 from app.services.route_deviation import route_deviation_service
 from app.services.traffic_monitoring import traffic_monitoring_service
 from app.services.routing_provider import RoutingProviderService, RoutingProvidersFailed
@@ -178,6 +179,7 @@ app.include_router(operational_sites_router)
 app.include_router(users_router)
 app.include_router(audit_router)
 app.include_router(driver_history_router)
+app.include_router(audit_router)
 
 
 class RoutePreviewRequest(BaseModel):
