@@ -81,6 +81,7 @@ export interface IntegrationStatus {
   tomtom_routing?: string
   tomtom_traffic_incidents?: string
   tomtom_traffic_flow?: string
+  azure_maps_traffic_incidents?: string
 }
 
 export interface FleetPrediction {
@@ -296,7 +297,7 @@ export interface FleetSnapshot {
   cache?: { hit: boolean; stale?: boolean; age_seconds: number }
 }
 
-export type IncidentCategory = 'ACIDENTE'|'CONGESTIONAMENTO'|'TRANSITO_LENTO'|'OBRA'|'INTERDICAO'|'VIA_FECHADA'|'RISCO_CLIMATICO'|'OCORRENCIA_MANUAL'|'OUTRO'
+export type IncidentCategory = 'ACIDENTE'|'CONGESTIONAMENTO'|'TRANSITO_LENTO'|'OBRA'|'INTERDICAO'|'VIA_FECHADA'|'VEICULO_PARADO'|'RISCO_VIA'|'RISCO_CLIMATICO'|'OCORRENCIA_MANUAL'|'OUTRO'
 export interface TrafficIncident { id:string;route_id:string;category:IncidentCategory;severity:'INFORMATIVO'|'ATENCAO'|'CRITICO';original_type?:string;source:string;description:string;road_name?:string;direction?:string;latitude:number;longitude:number;geometry:{type:string;coordinates:unknown};length_m?:number;delay_seconds?:number;delay_already_in_eta:boolean;started_at?:string;updated_at:string;expires_at:string;status:string;manual:boolean;information_source?:string;responsible_user?:string;affected_vehicles:Array<{trip_key?:string;plate?:string;distance_along_route_km:number;severity:string;reported_delay_seconds?:number;eta_adjustment_applied:boolean}> }
 export interface TrafficRoute { id:string;name:string;origin_name:string;destination_name:string;origin_latitude:number;origin_longitude:number;destination_latitude:number;destination_longitude:number;origin_radius_m:number;destination_radius_m:number;geometry:Array<{latitude:number;longitude:number}>;geometry_version?:string|null;geometry_source?:string|null;geometry_provider?:string|null;distance_m?:number|null;duration_seconds?:number|null }
 export interface TrafficSnapshot { incidents:TrafficIncident[];counts:{ACIDENTE:number;OBRA_INTERDICAO:number;TRECHO_LENTO:number;RISCO_CLIMATICO:number;MANUAL:number};snapshot?:{collected_at:string;status:string;request_count:number;incident_count:number};routes:TrafficRoute[];generated_at:string }
