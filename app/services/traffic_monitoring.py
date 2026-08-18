@@ -122,7 +122,7 @@ def associate_incident(incident: dict[str,Any], trips: list[dict[str,Any]], rout
 class TrafficMonitoringService:
     def __init__(self, repository: TrafficRepository, client: TomTomClient | None=None,
                  azure_client: AzureMapsClient | None=None) -> None:
-        self.repository=repository; self.client=client or TomTomClient(); self.azure_client=azure_client or AzureMapsClient(); self._lock=asyncio.Lock()
+        self.repository=repository; self._tomtom_client_injected=client is not None; self.client=client or TomTomClient(); self.azure_client=azure_client or AzureMapsClient(); self._lock=asyncio.Lock()
         self._cooldown_until=0.0; self._cooldown_status: str | None=None
         self._response_cache: dict[tuple[Any,...],tuple[float,dict[str,Any]]]={}
         try:
@@ -185,7 +185,8 @@ class TrafficMonitoringService:
             if not geometries:
                 self.repository.save_health("tomtom_traffic_incidents","NOT_CONFIGURED",None,None,0,"route_geometry_unavailable"); self.repository.expire()
                 return {"status":"NOT_CONFIGURED","request_count":0,"incident_count":0}
-            provider="azure" if time.monotonic()<self._cooldown_until or not settings.tomtom_api_key else "tomtom"
+            tomtom_available=bool(settings.tomtom_api_key) or self._tomtom_client_injected
+            provider="azure" if time.monotonic()<self._cooldown_until or not tomtom_available else "tomtom"
             if provider=="azure" and not settings.azure_maps_subscription_key:
                 self.repository.save_health("azure_maps_traffic_incidents","NOT_CONFIGURED",None,None,0,"subscription_key_missing")
                 self.repository.expire()

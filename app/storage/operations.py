@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -225,14 +226,17 @@ CREATE INDEX IF NOT EXISTS idx_eta_history_trip_time
 ON eta_history(trip_key, recorded_at);
 CREATE TABLE IF NOT EXISTS driver_profiles (
  id TEXT PRIMARY KEY, cpf TEXT UNIQUE, name TEXT NOT NULL, phone TEXT,
+ identity_status TEXT NOT NULL DEFAULT 'PENDING',
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_driver_profiles_name ON driver_profiles(name);
 CREATE TABLE IF NOT EXISTS driver_trip_history (
  trip_key TEXT PRIMARY KEY REFERENCES operational_trips(trip_key),
  driver_id TEXT NOT NULL REFERENCES driver_profiles(id), provider_trip_id TEXT,
  plate TEXT NOT NULL, trailer_plate TEXT, route_id TEXT, route_name TEXT,
- origin_name TEXT, destination_name TEXT, customer TEXT,
- status TEXT NOT NULL, started_at TEXT, finished_at TEXT,
+ origin_name TEXT, destination_name TEXT, customer TEXT, evaluation_responsible TEXT,
+ status TEXT NOT NULL, source_created_at TEXT, loaded_at TEXT, started_at TEXT,
+ scheduled_arrival_at TEXT, eta_at TEXT, arrived_destination_at TEXT, finished_at TEXT,
+ package_count INTEGER, responsible TEXT, driver_source TEXT,
  source TEXT NOT NULL, source_updated_at TEXT NOT NULL,
  automatic_punctuality TEXT NOT NULL DEFAULT 'UNAVAILABLE',
  automatic_delay_minutes REAL, considered_punctuality TEXT,
@@ -262,24 +266,16 @@ CREATE TABLE IF NOT EXISTS driver_internal_notes (
  id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id TEXT NOT NULL REFERENCES driver_profiles(id),
  note TEXT NOT NULL, responsible TEXT NOT NULL, created_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_driver_notes_driver ON driver_internal_notes(driver_id, created_at DESC);
-CREATE TABLE IF NOT EXISTS audit_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    timestamp TEXT NOT NULL,
-    user_id TEXT,
-    user_name TEXT,
-    user_role TEXT,
-    action_type TEXT NOT NULL,
-    resource_type TEXT,
-    resource_id TEXT,
-    trip_key TEXT,
-    details TEXT,
-    change_summary TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_audit_events_timestamp ON audit_events(timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_events_user ON audit_events(user_id, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_events_action ON audit_events(action_type, timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_events_trip ON audit_events(trip_key, timestamp DESC);
+CREATE TABLE IF NOT EXISTS driver_identity_links (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),
+ previous_driver_id TEXT, new_driver_id TEXT NOT NULL REFERENCES driver_profiles(id),
+ source TEXT NOT NULL, justification TEXT NOT NULL, responsible TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_identity_links_trip ON driver_identity_links(trip_key, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_trip_history_changes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),
+ field_name TEXT NOT NULL, previous_value TEXT, new_value TEXT, responsible TEXT NOT NULL,
+ justification TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_changes_trip ON driver_trip_history_changes(trip_key, created_at DESC);
 """
 
 
@@ -292,6 +288,9 @@ class OperationsRepository:
         path = Path(database_path)
         if str(database_path) != ":memory:" and not path.is_absolute():
             raise ValueError("SQLite database path must be absolute")
+        operational_path = (Path(__file__).resolve().parents[2] / "data" / "operations.db").resolve()
+        if "pytest" in sys.modules and str(database_path) != ":memory:" and path.resolve() == operational_path:
+            raise RuntimeError("Tests cannot use the operational database")
         self.database_path = ":memory:" if str(database_path) == ":memory:" else str(path.resolve())
         self._lock = threading.RLock()
 

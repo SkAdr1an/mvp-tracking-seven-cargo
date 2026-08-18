@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -35,6 +36,7 @@ def test_history_requires_panel_permission(tmp_path: Path, monkeypatch):
     assert app_for(repository, monkeypatch, authenticated=False).get("/api/driver-history/drivers").status_code == 401
 
 
+@pytest.mark.runtime_schema_invariance
 def test_pending_migration_is_clear_503_not_404(tmp_path: Path, monkeypatch):
     repository = OperationsRepository(tmp_path / "pending.sqlite")
     response = app_for(repository, monkeypatch).get("/api/driver-history/drivers")

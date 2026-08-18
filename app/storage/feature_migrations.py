@@ -18,6 +18,7 @@ REQUIRED_009_COLUMNS = {
     "eta_at": "TEXT", "arrived_destination_at": "TEXT", "package_count": "INTEGER",
     "responsible": "TEXT", "driver_source": "TEXT",
 }
+REQUIRED_009_PROFILE_COLUMNS = {"identity_status": "TEXT NOT NULL DEFAULT 'PENDING'"}
 
 
 def migration_009_pending(database_path: str | Path) -> bool:
@@ -38,6 +39,10 @@ def apply_migration_009(database_path: str | Path, *, disposable: bool = False) 
         for column, kind in REQUIRED_009_COLUMNS.items():
             if column not in present:
                 connection.execute(f"ALTER TABLE driver_trip_history ADD COLUMN {column} {kind}")
+        profile_columns = {row[1] for row in connection.execute("PRAGMA table_info(driver_profiles)")}
+        for column, kind in REQUIRED_009_PROFILE_COLUMNS.items():
+            if column not in profile_columns:
+                connection.execute(f"ALTER TABLE driver_profiles ADD COLUMN {column} {kind}")
 
 
 def rollback_migration_009(database_path: str | Path, *, disposable: bool = False) -> None:

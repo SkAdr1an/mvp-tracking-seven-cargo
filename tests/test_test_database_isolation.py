@@ -9,6 +9,9 @@ from app.storage.feature_migrations import OPERATIONAL_DATABASE, apply_migration
 from app.storage.operations import OperationsRepository
 
 
+pytestmark = pytest.mark.runtime_schema_invariance
+
+
 def test_test_environment_uses_disposable_database():
     from app.core.config import get_settings
     assert get_settings().operations_database_path != OPERATIONAL_DATABASE

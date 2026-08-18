@@ -138,7 +138,11 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     ):
         scripts.append((MIGRATIONS_DIRECTORY / name).read_text(encoding="utf-8"))
     scripts.extend((PUBLIC_LINK_SCHEMA, TRAFFIC_SCHEMA, ANGELLIRA_SCHEMA))
-    for name in ("007_driver_mobile_location.sql", "008_driver_portal_alerts.sql"):
+    for name in (
+        "007_driver_mobile_location.sql",
+        "008_driver_portal_alerts.sql",
+        "009_driver_history_evaluations.sql",
+    ):
         scripts.append((MIGRATIONS_DIRECTORY / name).read_text(encoding="utf-8"))
     scripts.append(
         (MIGRATIONS_DIRECTORY / "010_journey_observation.sql").read_text(encoding="utf-8")
@@ -154,6 +158,20 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     )
     alterations: list[str] = []
     expected_columns = {
+        "driver_profiles": {
+            "identity_status": "ALTER TABLE driver_profiles ADD COLUMN identity_status TEXT NOT NULL DEFAULT 'PENDING'",
+        },
+        "driver_trip_history": {
+            "evaluation_responsible": "ALTER TABLE driver_trip_history ADD COLUMN evaluation_responsible TEXT",
+            "source_created_at": "ALTER TABLE driver_trip_history ADD COLUMN source_created_at TEXT",
+            "loaded_at": "ALTER TABLE driver_trip_history ADD COLUMN loaded_at TEXT",
+            "scheduled_arrival_at": "ALTER TABLE driver_trip_history ADD COLUMN scheduled_arrival_at TEXT",
+            "eta_at": "ALTER TABLE driver_trip_history ADD COLUMN eta_at TEXT",
+            "arrived_destination_at": "ALTER TABLE driver_trip_history ADD COLUMN arrived_destination_at TEXT",
+            "package_count": "ALTER TABLE driver_trip_history ADD COLUMN package_count INTEGER",
+            "responsible": "ALTER TABLE driver_trip_history ADD COLUMN responsible TEXT",
+            "driver_source": "ALTER TABLE driver_trip_history ADD COLUMN driver_source TEXT",
+        },
         "operational_diagnostics": {
             "commitment_delta_minutes": "ALTER TABLE operational_diagnostics ADD COLUMN commitment_delta_minutes REAL",
         },
