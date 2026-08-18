@@ -77,7 +77,6 @@ function AuthenticatedApp({ session, onLogout }: { session: PanelSession; onLogo
         {page === 'drivers' && <Drivers drivers={drivers} selected={selected} hiddenDriverIds={hiddenDriverIds} pinnedDriverId={pinnedDriverId} onSelect={selectDriver} onClear={()=>setSelectedId(undefined)} onHide={(id)=>{setHiddenDriverIds((value)=>[...new Set([...value,id])]);if(pinnedDriverId===id)setPinnedDriverId(undefined)}} onRestore={(id)=>setHiddenDriverIds((value)=>value.filter((item)=>item!==id))} onRestoreAll={()=>setHiddenDriverIds([])} onPin={(id)=>{setPinnedDriverId((value)=>value===id?undefined:id);setSelectedId(id)}} />}
         {page === 'driver-history' && <DriverHistory onConnection={setAdminApiConnection} />}
         {page === 'pending-evaluations' && <PendingEvaluations onConnection={setAdminApiConnection} />}
-        {page === 'audit' && <Audit />}
         {page === 'routes' && <Routes />}
         {page === 'trafegus' && <Trafegus />}
         {page === 'integrations' && <Integrations />}
