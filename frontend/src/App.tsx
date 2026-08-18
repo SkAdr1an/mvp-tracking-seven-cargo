@@ -12,11 +12,14 @@ import { Trafegus } from './pages/Trafegus'
 import { AngelLiraAdmin } from './pages/AngelLiraAdmin'
 import { UsersAdmin } from './pages/UsersAdmin'
 import { Audit } from './pages/Audit'
+import { LoginPage } from './components/login/LoginPage'
 import { SessionContext, hasPermission } from './permissions'
 import type { Driver, Page, PanelSession } from './types'
 import { DriverHistory } from './pages/DriverHistory'
 import { PendingEvaluations } from './pages/PendingEvaluations'
 import './mobile-shell.css'
+import './premium-dashboard.css'
+import './premium-kpi-labels.css'
 
 export default function App() {
   const [session, setSession] = useState<PanelSession | null>()
@@ -98,17 +101,7 @@ function PanelLogin({ onAuthenticated }: { onAuthenticated: (session: PanelSessi
     catch { setError('Não foi possível entrar. Verifique as credenciais ou tente novamente mais tarde.') }
     finally { setPending(false); setPassword('') }
   }
-  return <main className="auth-shell">
-    <form className="auth-card" onSubmit={submit}>
-      <span className="auth-brand">7SEVEN CARGO</span>
-      <h1>Acesso ao painel</h1>
-      <p>Entre com sua conta autorizada.</p>
-      <label>Usuário<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required maxLength={100}/></label>
-      <label>Senha<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required maxLength={500}/></label>
-      {error && <div className="auth-error" role="alert">{error}</div>}
-      <button type="submit" disabled={pending}>{pending ? 'Entrando...' : 'Entrar'}</button>
-    </form>
-  </main>
+  return <LoginPage username={username} password={password} error={error} pending={pending} onUsernameChange={setUsername} onPasswordChange={setPassword} onSubmit={submit}/>
 }
 
 function stored<T>(key:string,fallback:T):T{try{const value=localStorage.getItem(key);return value?JSON.parse(value) as T:fallback}catch{return fallback}}

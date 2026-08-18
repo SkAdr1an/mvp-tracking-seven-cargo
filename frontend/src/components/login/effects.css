@@ -1,0 +1,17 @@
+/* Runtime-visible motion overrides. Values arrive precomputed from pointermove. */
+.login-scene__image{transform:translate3d(var(--scene-x,0px),var(--scene-y,0px),0) scale(1.045)}
+.login-scene__lion{z-index:2;transform:translate3d(var(--lion-x,0px),var(--lion-y,0px),15px) scale(1.045);transition:transform .12s ease-out}
+.login-scene__map{z-index:2;transform:translate3d(var(--map-x,0px),var(--map-y,0px),8px) scale(1.045);transition:transform .16s ease-out}
+.login-scene__truck{z-index:3;transform:translate3d(var(--truck-x,0px),var(--truck-y,0px),22px) scale(1.045);transition:transform .1s ease-out;animation:truck-motion 2.25s ease-in-out infinite}
+.login-rain{z-index:6;mix-blend-mode:screen}.login-rain i{display:block;opacity:.68;background-image:repeating-linear-gradient(112deg,transparent 0 19px,rgba(225,235,255,.54) 20px,transparent 22px);background-size:32px 64px;animation:rain-visible .72s linear infinite}.login-rain i:nth-child(2){display:block;opacity:.4;background-size:55px 102px;animation:rain-visible 1.08s linear infinite reverse}.login-rain i:nth-child(3){display:block;opacity:.25;background-size:91px 148px;animation:rain-visible 1.58s linear infinite}
+.login-scene__road{z-index:4;opacity:.64;background-size:160% 100%;animation:road-visible 2.8s linear infinite}.login-scene__spray{z-index:5;opacity:.55;animation:spray-visible 1.45s ease-in-out infinite}.login-scene__headlights{z-index:5;opacity:.7;animation:headlights-visible 2.1s ease-in-out infinite}
+.login-panel-wrap{background:radial-gradient(circle at 30% 42%,rgba(240,179,31,.24),transparent 43%),linear-gradient(135deg,#171717,#050505 58%)}.login-panel-wrap:after{content:'';position:absolute;z-index:-1;width:min(590px,92%);height:78%;border-radius:34px;background:radial-gradient(ellipse,rgba(236,176,27,.2),transparent 68%);filter:blur(18px);animation:panel-glow-visible 2.8s ease-in-out infinite;pointer-events:none}.login-panel{animation:panel-rim-visible 3.2s ease-in-out infinite}
+@keyframes rain-visible{from{transform:translate3d(45px,-130px,0)}to{transform:translate3d(-55px,150px,0)}}
+@keyframes truck-motion{0%,100%{translate:0 0}35%{translate:2px 4px}70%{translate:-2px 1px}}
+@keyframes road-visible{to{background-position:-160% 0}}
+@keyframes spray-visible{0%,100%{transform:translate(5px,2px) scale(.96);opacity:.42}50%{transform:translate(-13px,-5px) scale(1.08);opacity:.68}}
+@keyframes headlights-visible{0%,100%{filter:blur(7px);opacity:.58}50%{filter:blur(12px);opacity:.86}}
+@keyframes panel-glow-visible{50%{opacity:.62;transform:scale(1.045)}}
+@keyframes panel-rim-visible{50%{border-color:#a47b1d;box-shadow:inset 0 1px #ffffff17,0 40px 82px #000,0 0 62px rgba(236,176,27,.28)}}
+@media(max-width:760px){.login-rain i:nth-child(n+2),.login-scene__depth,.login-scene__spray{display:none}.login-rain i{opacity:.34;animation-duration:1.25s}.login-scene__road{opacity:.28;animation-duration:4.5s}.login-panel,.login-panel-wrap:after{animation-duration:5s}}
+@media(prefers-reduced-motion:reduce){.login-scene__image,.login-scene__depth{transform:scale(1.045);transition:none}.login-rain i,.login-scene__road,.login-scene__spray,.login-scene__headlights,.login-panel,.login-panel-wrap:after{animation:none}}

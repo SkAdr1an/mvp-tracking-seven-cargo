@@ -25,7 +25,7 @@ export function Sidebar({ page, onChange, open, onClose }: {
   return (
     <aside id="primary-navigation" className={`sidebar ${open ? 'sidebar--open' : ''}`}>
       <div className="brand">
-        <div className="brand__mark"><span>7</span></div>
+        <img className="brand__logo" src="/login/seven-cargo-logo.png" alt="Seven Cargo" />
         <div><strong>Seven Cargo</strong><small>Central de operações</small></div>
         <button type="button" className="icon-button sidebar__close" onClick={onClose} aria-label="Fechar menu"><X size={20} /></button>
       </div>
