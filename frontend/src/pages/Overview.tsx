@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronDown, Clock3, CloudLightning, List, Radio, RotateCcw, Route, ShieldCheck, Truck } from 'lucide-react'
+import { AlertTriangle, ArrowRight, ChevronDown, Clock3, CloudLightning, List, Radio, RotateCcw, Route, ShieldCheck, Truck } from 'lucide-react'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { DriverMap } from '../components/DriverMap'
 import type { MapCameraCommand } from '../components/MapResizeController'
@@ -6,6 +6,7 @@ import { OperationalTripPanel } from '../components/OperationalTripPanel'
 import type { Driver, FleetSnapshot, OperationalSite, RoutePaths, TrafficIncident, TrafficSnapshot } from '../types'
 import { formatAgo } from '../utils'
 import { operationalAvailability } from '../driverPresentation'
+import { currentDeviationDriverIds } from '../overviewMetrics'
 
 type Filter = 'trips'|'normal'|'attention'|'critical'|'off_route'|'accident'|'works'|'slow'|'weather'
 
@@ -13,7 +14,7 @@ export function Overview({drivers,selected,hiddenDriverIds,pinnedDriverId,onSele
   const [filter,setFilter]=useState<Filter>()
   const [cameraCommand,setCameraCommand]=useState<MapCameraCommand>({id:0,mode:'fit'})
   const [showMoreMetrics,setShowMoreMetrics]=useState(false)
-  const deviations=useMemo(()=>new Set((paths?.paths||[]).filter((item)=>item.deviation).map((item)=>item.plate)),[paths])
+  const deviations=useMemo(()=>currentDeviationDriverIds(drivers,paths),[drivers,paths])
   const incidents=traffic?.incidents||[]
   const visible=drivers.filter((driver)=>!hiddenDriverIds.includes(driver.id))
   const shown=visible.filter((driver)=>matchesDriver(driver,filter,deviations.has(driver.id),incidents))
@@ -30,13 +31,13 @@ export function Overview({drivers,selected,hiddenDriverIds,pinnedDriverId,onSele
     ['normal',ShieldCheck,'Normais',counts?.normal??0,'Dentro da previsão','blue'],
     ['attention',AlertTriangle,'Em atenção',counts?.attention??0,'Exigem acompanhamento','amber'],
     ['critical',AlertTriangle,'Críticas',counts?.critical??0,'Prioridade operacional','red'],
-    ['off_route',Route,'Fora da rota',deviations.size,'Corredor operacional: 300 m','red'],
+    ['off_route',Route,'Fora da rota',deviations.size,'Desvios confirmados em viagens ativas','red'],
     ['accident',AlertTriangle,'Acidentes',traffic?.counts.ACIDENTE??0,'Ocorrências ativas','red'],
     ['works',Route,'Obras/interdições',traffic?.counts.OBRA_INTERDICAO??0,'Impactos na via','amber'],
     ['slow',Clock3,'Trechos lentos',traffic?.counts.TRECHO_LENTO??0,'Fluxo comprometido','amber'],
     ['weather',CloudLightning,'Riscos climáticos',counts?.weather_risks??0,'Próximos trechos','amber'],
   ]
-  return <div className="page-stack">
+  return <div className="page-stack premium-overview">
     <section className={`metrics-grid overview-metrics ${showMoreMetrics?'overview-metrics--expanded':''}`}>{metrics.map(([key,icon,label,value,detail,tone],index)=><Metric key={key} icon={icon} label={label} value={value} detail={detail} tone={tone} secondary={index>=4} active={filter===key} onClick={()=>changeFilter(filter===key?undefined:key)}/>)}</section>
     <div className="overview-mobile-actions"><button onClick={onOpenDrivers}><List size={17}/>Abrir lista de motoristas</button><button aria-expanded={showMoreMetrics} onClick={()=>setShowMoreMetrics((value)=>!value)}><ChevronDown size={17}/>{showMoreMetrics?'Ocultar indicadores':'Outros indicadores'}</button></div>
     {filter&&<button className="clear-filters" onClick={()=>changeFilter(undefined)}><RotateCcw size={15}/>Limpar filtros</button>}
@@ -45,6 +46,7 @@ export function Overview({drivers,selected,hiddenDriverIds,pinnedDriverId,onSele
       <div className="panel map-panel"><div className="panel__header"><div><span className="eyebrow">Trafegus · atualização automática</span><h2>Frota em tempo real</h2></div><span className="live-label"><i/>{fleet?.source_status==='stale'?'CACHE':'AO VIVO'}</span></div><DriverMap drivers={shown} selected={focused} pinnedId={pinnedDriverId} paths={paths?.paths||[]} sites={sites} onSelect={selectVisibleDriver} cameraCommand={cameraCommand} traffic={traffic?{...traffic,incidents:shownIncidents}:undefined} onTrafficChanged={onTrafficChanged}/></div>
       <div className="panel fleet-panel"><div className="panel__header"><div><span className="eyebrow">Viagens ativas</span><h2>Situação da frota</h2></div><span className="count-pill">{shown.length}</span></div>
         <div className="driver-list">{!shown.length&&<div className="empty-list"><Radio size={27}/><strong>Nenhuma viagem neste filtro</strong><span>Os dados operacionais não foram alterados.</span></div>}{shown.map((driver)=><button key={driver.trip_id||driver.id} className={`driver-row driver-row--clean ${focused?.id===driver.id?'driver-row--selected':''} ${pinnedDriverId===driver.id?'driver-row--pinned':''}`} onClick={()=>selectVisibleDriver(driver)}><div className={`vehicle-icon vehicle-icon--${driver.status}`}><Truck size={19}/></div><div className="driver-row__main"><strong className="driver-telemetry" title="Velocidade e distância estimadas pelo último snapshot"><b>{driver.id}</b><i/> <span>{speedLabel(driver)}</span><i/> <span>{remainingLabel(driver)}</span></strong><span>{driver.driver||'Motorista não informado'}</span><small>{driver.route||driver.location_description||'Rota não informada'}</small></div><div className="driver-row__meta"><Classification value={driver.prediction?.classification}/><span>{formatAgo(driver.last_update)}</span></div></button>)}</div>
+        <button className="fleet-panel__all" onClick={onOpenDrivers}>Ver todas as viagens <ArrowRight size={15}/></button>
       </div>
     </section>
     {focused&&<section className="panel trip-detail"><div className="trip-detail__heading"><div><span className="eyebrow">Viagem selecionada</span><h2>{focused.id}</h2><p>{focused.driver||'Motorista não informado'} · {focused.tracker||'Rastreador não informado'}</p></div><Classification value={focused.prediction?.classification}/></div><ProgressDetail driver={focused}/>{focused.operational&&<OperationalTripPanel initial={focused.operational}/>}</section>}
