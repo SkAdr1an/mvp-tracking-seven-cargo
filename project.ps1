@@ -92,6 +92,18 @@ function Test-TrafegusNetwork {
     }
 }
 
+function Test-TrafegusApi([string]$Python) {
+    Write-Step "Validando API real do Trafegus"
+    $diagnosticLog = Join-Path $RuntimeRoot "trafegus-preflight.json"
+    & $Python -m app.scripts.diagnose_trafegus *> $diagnosticLog
+    if ($LASTEXITCODE -ne 0) {
+        throw "O preflight do Trafegus falhou. O backend nao sera iniciado silenciosamente sem a integracao. Consulte $diagnosticLog"
+    }
+    $report = Get-Content $diagnosticLog -Raw | ConvertFrom-Json
+    $vehicles = $report.phases.fleet_query.vehicle_count
+    Write-Host "Trafegus autenticado; $vehicles veiculo(s) encontrado(s)." -ForegroundColor Green
+}
+
 function Stop-Project {
     Write-Step "Parando o projeto"
     foreach ($port in 5173, 8000) {
@@ -130,19 +142,11 @@ function Start-Project {
         $python = Get-ProjectPython
     }
     Test-TrafegusNetwork
+    Test-TrafegusApi $python
 
     Write-Step "Iniciando backend"
     $backend = Start-Process -FilePath $python -ArgumentList "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000" -WorkingDirectory $ProjectRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $BackendLog -RedirectStandardError $BackendErrorLog
     if (-not (Wait-Http "http://127.0.0.1:8000/health" 35)) { throw "O backend não iniciou. Consulte $BackendErrorLog" }
-
-    Write-Step "Validando autenticação no Trafegus"
-    try {
-        $fleet = Invoke-WebRequest -Uri "http://127.0.0.1:8000/fleet/active" -UseBasicParsing -TimeoutSec 60
-        if ($fleet.StatusCode -ne 200) { throw "HTTP $($fleet.StatusCode)" }
-    } catch {
-        & taskkill.exe /PID $backend.Id /T /F | Out-Null
-        throw "O Trafegus não ficou operacional: $($_.Exception.Message). Consulte $BackendErrorLog"
-    }
 
     Write-Step "Iniciando frontend"
     $vite = Join-Path $FrontendRoot "node_modules\.bin\vite.cmd"
