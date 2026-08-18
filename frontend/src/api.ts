@@ -45,6 +45,9 @@ async function panelRequest<T>(path: string, options?: RequestInit, allowNotFoun
       throw new Error('Sua sessão expirou. Entre novamente.')
     }
     if (response.status === 403) {
+      if (typeof payload?.detail === 'string' && path.endsWith('/permanent-delete') && options?.method === 'POST') {
+        throw new Error(payload.detail)
+      }
       window.dispatchEvent(new CustomEvent(PANEL_FORBIDDEN_EVENT))
       throw new Error('Você não possui permissão para realizar esta ação.')
     }
@@ -171,6 +174,7 @@ export const api = {
   updateUser: (id:string,input:{display_name?:string;role?:string}) => panelRequest<ManagedUser>(`/api/users/${id}`,{method:'PATCH',body:JSON.stringify(input)}) as Promise<ManagedUser>,
   resetUserPassword: (id:string,password:string) => panelRequest<ManagedUser>(`/api/users/${id}/reset-password`,{method:'POST',body:JSON.stringify({password})}) as Promise<ManagedUser>,
   setUserActive: (id:string,active:boolean) => panelRequest<ManagedUser>(`/api/users/${id}/${active?'activate':'deactivate'}`,{method:'POST'}) as Promise<ManagedUser>,
+  permanentlyDeleteUser: (id:string,creatorPassword:string) => panelRequest<void>(`/api/users/${id}/permanent-delete`,{method:'POST',body:JSON.stringify({creator_password:creatorPassword})}) as Promise<void>,
   observations: (tripKey:string) => panelRequest<{observations:OperationalObservation[]}>(`/operations/trips/${encodeURIComponent(tripKey)}/observations`) as Promise<{observations:OperationalObservation[]}>,
   createObservation: (tripKey:string,input:Record<string,unknown>) => panelRequest<OperationalObservation>(`/operations/trips/${encodeURIComponent(tripKey)}/observations`,{method:'POST',body:JSON.stringify(input)}) as Promise<OperationalObservation>,
   correctObservation: (id:string,input:{content:string;reason:string}) => panelRequest(`/operations/observations/${id}/correction`,{method:'POST',body:JSON.stringify(input)}),

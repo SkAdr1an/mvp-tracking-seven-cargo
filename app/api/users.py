@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
-from app.core.security import Permission, Principal, hash_password, require_permission
+from app.core.security import Permission, Principal, hash_password, require_permission, verify_password
 from app.storage.users import UserIdentity, UserRepository
 from app.services.audit import AuditAction, AuditService
 
@@ -29,6 +29,9 @@ class UserUpdateRequest(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     password: str = Field(min_length=12, max_length=500)
+
+class PermanentDeleteRequest(BaseModel):
+    creator_password: str = Field(min_length=1, max_length=500)
 
 
 def _repository() -> UserRepository:
@@ -168,5 +171,32 @@ async def activate_user(
                 before={"status": "INACTIVE"}, after={"status": changed.status},
                 connection=connection))
         return _response(user)
+    except (KeyError, ValueError) as exc:
+        raise _translate(exc) from exc
+
+@router.post("/{user_id}/permanent-delete")
+async def permanently_delete_user(
+    user_id: str, payload: PermanentDeleteRequest,
+    principal: Principal = Depends(require_permission(Permission.USERS_MANAGE)),
+) -> dict[str, bool]:
+    actor = _actor(principal)
+    if actor == user_id:
+        raise HTTPException(status_code=409, detail="Você não pode excluir permanentemente sua própria conta")
+    configured_hash = get_settings().creator_delete_password_hash
+    if not configured_hash or not verify_password(payload.creator_password.strip(), configured_hash):
+        raise HTTPException(status_code=403, detail="Senha do criador inválida")
+    repository = _repository()
+    original = repository.by_id(user_id)
+    if original is None:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    try:
+        repository.purge_permanently(
+            user_id, audit=lambda connection: _audit(
+                principal, AuditAction.USER_DELETED, user_id,
+                before={"username": original.username, "display_name": original.display_name,
+                        "role": original.role_code, "status": original.status},
+                after={"permanently_deleted": True}, connection=connection),
+        )
+        return {"deleted": True}
     except (KeyError, ValueError) as exc:
         raise _translate(exc) from exc

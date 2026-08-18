@@ -78,7 +78,7 @@ class UserRepository:
     def list_all(self) -> list[UserIdentity]:
         with self._connect() as connection:
             return [self._identity(connection, row) for row in connection.execute(
-                "SELECT * FROM users ORDER BY display_name,username"
+                "SELECT * FROM users WHERE id<>'00000000-0000-0000-0000-000000000000' ORDER BY display_name,username"
             )]
 
     def by_id(self, user_id: str) -> UserIdentity | None:
@@ -271,6 +271,49 @@ class UserRepository:
                    WHERE user_id IS NULL AND lower(trim(username))=? AND revoked_at IS NULL""",
                 (int(datetime.now(timezone.utc).timestamp()), normalized),
             )
+
+    def purge_permanently(
+        self, user_id: str, audit: Callable[[sqlite3.Connection], None] | None = None,
+    ) -> None:
+        """Remove credentials/identity while preserving historical foreign keys."""
+        tombstone_id = "00000000-0000-0000-0000-000000000000"
+        now = utc_now()
+        with self._connect() as connection:
+            current = connection.execute("SELECT role_id,status FROM users WHERE id=?", (user_id,)).fetchone()
+            if current is None:
+                raise KeyError(user_id)
+            if current[0] == "ADMIN" and current[1] == "ACTIVE":
+                self._require_another_active_admin(connection, user_id)
+            connection.execute(
+                """INSERT OR IGNORE INTO users(
+                   id,username,display_name,password_hash,status,role_id,created_at,updated_at,
+                   inactivated_at,password_changed_at
+                   ) VALUES(?,?,?,'disabled','INACTIVE','MONITORING',?,?,?,?)""",
+                (tombstone_id, "deleted-user", "Usuário excluído", now, now, now, now),
+            )
+            if audit:
+                audit(connection)
+            for table, columns in (
+                ("operational_observations", ("created_by_user_id", "corrected_by_user_id", "voided_by_user_id")),
+                ("audit_events", ("actor_user_id",)),
+            ):
+                exists = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+                ).fetchone()
+                if exists:
+                    for column in columns:
+                        connection.execute(f"UPDATE {table} SET {column}=? WHERE {column}=?", (tombstone_id, user_id))
+            if connection.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='operational_trips'").fetchone():
+                for column in ("cancelled_by_user_id", "archived_by_user_id"):
+                    if connection.execute("SELECT 1 FROM pragma_table_info('operational_trips') WHERE name=?", (column,)).fetchone():
+                        connection.execute(f"UPDATE operational_trips SET {column}=NULL WHERE {column}=?", (user_id,))
+            connection.execute("UPDATE users SET created_by_user_id=NULL WHERE created_by_user_id=?", (user_id,))
+            connection.execute("UPDATE users SET updated_by_user_id=NULL WHERE updated_by_user_id=?", (user_id,))
+            connection.execute("UPDATE users SET inactivated_by_user_id=NULL WHERE inactivated_by_user_id=?", (user_id,))
+            connection.execute("DELETE FROM panel_sessions WHERE user_id=?", (user_id,))
+            deleted = connection.execute("DELETE FROM users WHERE id=?", (user_id,))
+            if deleted.rowcount != 1:
+                raise KeyError(user_id)
 
     @staticmethod
     def _revoke_sessions(connection: sqlite3.Connection, user_id: str) -> None:
