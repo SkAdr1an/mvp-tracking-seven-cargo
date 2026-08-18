@@ -1,12 +1,10 @@
-import { ClipboardCheck, CloudSun, Database, History, Map, Route, Settings2, Truck, Users, Waypoints, X } from 'lucide-react'
+import { CloudSun, Database, History, Map, Route, Settings2, Truck, Users, Waypoints, X } from 'lucide-react'
 import type { Page } from '../types'
 import { usePanelSession, hasPermission } from '../permissions'
 
 const items: { page: Page; label: string; icon: typeof Map; permission?:string }[] = [
   { page: 'overview', label: 'Visão geral', icon: Map },
   { page: 'drivers', label: 'Motoristas', icon: Truck },
-  { page: 'driver-history', label: 'Histórico de motoristas', icon: History },
-  { page: 'pending-evaluations', label: 'Avaliações pendentes', icon: ClipboardCheck },
   { page: 'routes', label: 'Planejar rota', icon: Route, permission:'integrations:invoke' },
   { page: 'trafegus', label: 'Trafegus', icon: Waypoints, permission:'integrations:invoke' },
   { page: 'integrations', label: 'Integrações', icon: CloudSun },

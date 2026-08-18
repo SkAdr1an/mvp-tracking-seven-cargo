@@ -26,8 +26,8 @@ test('history exposes filters, pagination-ready API and on-demand PDF',()=>{
   assert.match(history,/Não disponível/)
   assert.doesNotMatch(history,/report\.json/)
 })
-test('pending evaluations are a dedicated sidebar page with complete form',()=>{
-  assert.match(sidebar,/Avaliações pendentes/)
+test('driver history tools stay implemented but hidden from the sidebar',()=>{
+  assert.doesNotMatch(sidebar,/Histórico de motoristas|Avaliações pendentes/)
   for(const label of ['Comunicação','Cumprimento dos procedimentos','Colaboração com tracking','Uso do Time Mark','Comportamento profissional','Recomendação','Justificativa','Observação interna'])assert.match(pending,new RegExp(label))
   assert.match(pending,/Somente vencidas/)
 })
