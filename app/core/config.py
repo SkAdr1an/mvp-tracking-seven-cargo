@@ -13,6 +13,9 @@ DEFAULT_OPERATIONS_DATABASE = PROJECT_ROOT / "data" / "operations.db"
 class Settings(BaseSettings):
     app_environment: str = "development"
     tomtom_api_key: str = ""
+    azure_maps_subscription_key: str = ""
+    azure_maps_api_url: str = "https://atlas.microsoft.com"
+    azure_maps_timeout_seconds: float = 15.0
     openrouteservice_api_key: str = ""
     openweather_api_key: str = ""
     trafegus_api_key: str = ""
@@ -27,6 +30,7 @@ class Settings(BaseSettings):
     public_trip_internal_api_key: str = ""
     panel_admin_username: str = ""
     panel_admin_password_hash: str = ""
+    creator_delete_password_hash: str = ""
     panel_admin_role: str = "Administrador"
     panel_users_file: Path | None = None
     panel_session_secret: str = ""
@@ -89,6 +93,8 @@ class Settings(BaseSettings):
     traffic_collector_interval_seconds: int = 180
     traffic_collector_initial_delay_seconds: int = 15
     traffic_corridor_km: float = 15
+    traffic_route_corridor_meters: float = 500
+    traffic_route_corridor_highway_meters: float = 1000
     traffic_lookahead_km: float = 350
     traffic_query_spacing_km: float = 60
     traffic_max_incident_calls_per_cycle: int = 12

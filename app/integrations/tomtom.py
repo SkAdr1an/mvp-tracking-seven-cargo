@@ -246,7 +246,12 @@ class TomTomClient:
             except (httpx.TimeoutException, httpx.RequestError) as exc:
                 raise UnavailableError(f"{provider} unavailable") from exc
         if response.status_code in {401, 403}:
-            raise AuthError(f"{provider} authentication failed")
+            code = _tomtom_error_code(response) or "AUTH_ERROR"
+            raise AuthError(
+                f"{provider} authentication or entitlement failed",
+                response.status_code,
+                code,
+            )
         if response.status_code == 429:
             raise RateLimitError(f"{provider} rate limit exceeded")
         if response.status_code >= 500:

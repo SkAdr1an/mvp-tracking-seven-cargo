@@ -614,6 +614,7 @@ async def integrations_status() -> dict[str, object]:
         "tomtom_routing": "operational" if settings.tomtom_api_key else "unavailable",
         "tomtom_traffic_incidents": (traffic_health.get("tomtom_traffic_incidents") or {}).get("status", "degraded").lower(),
         "tomtom_traffic_flow": (traffic_health.get("tomtom_traffic_flow") or {}).get("status", "degraded").lower(),
+        "azure_maps_traffic_incidents": (traffic_health.get("azure_maps_traffic_incidents") or {}).get("status", "not_configured" if not settings.azure_maps_subscription_key else "degraded").lower(),
         "openweather": "configured" if settings.openweather_api_key else "not_configured",
         "trafegus": trafegus_health["status"],
         "trafegus_detail": trafegus_health,

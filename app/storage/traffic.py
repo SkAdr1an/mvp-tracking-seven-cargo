@@ -105,6 +105,23 @@ class TrafficRepository:
             cursor = connection.execute("UPDATE traffic_incidents SET status='EXPIRED' WHERE status IN ('ACTIVE','CONFIRMED') AND expires_at<=?", (now_utc(),))
             return cursor.rowcount
 
+    def expire_irrelevant(self, route_id: str, source: str | None = None,
+                          relevant_ids: set[str] | None = None) -> int:
+        """Expire automated incidents no longer relevant after a successful route evaluation."""
+        clauses=["route_id=?","manual=0","status IN ('ACTIVE','CONFIRMED')"]
+        params: list[Any]=[route_id]
+        if source:
+            clauses.append("source=?"); params.append(source)
+        identifiers=sorted(relevant_ids or set())
+        if identifiers:
+            clauses.append(f"id NOT IN ({','.join('?' for _ in identifiers)})"); params.extend(identifiers)
+        with self.operations.connect() as connection:
+            cursor=connection.execute(
+                "UPDATE traffic_incidents SET status='EXPIRED',updated_at=? WHERE "+" AND ".join(clauses),
+                [now_utc(),*params],
+            )
+            return cursor.rowcount
+
     def health(self) -> dict[str, dict[str, Any]]:
         with self.operations.connect() as connection:
             rows = connection.execute("SELECT * FROM provider_health").fetchall()

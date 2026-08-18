@@ -10,6 +10,7 @@ def test_integrations_status_has_no_fixed_city_or_weather(monkeypatch) -> None:
     settings = main_module.get_settings()
     monkeypatch.setattr(settings, "tomtom_api_key", "configured")
     monkeypatch.setattr(settings, "openweather_api_key", "configured")
+    monkeypatch.setattr(settings, "azure_maps_subscription_key", "configured")
     monkeypatch.setattr(settings, "trafegus_username", "configured")
     monkeypatch.setattr(settings, "trafegus_password", "configured")
     monkeypatch.setattr(settings, "trafegus_documento", "12345678000199")
@@ -18,6 +19,7 @@ def test_integrations_status_has_no_fixed_city_or_weather(monkeypatch) -> None:
     payload = response.json()
     assert payload["tomtom"] == "configured"
     assert payload["openweather"] == "configured"
+    assert payload["azure_maps_traffic_incidents"] in {"degraded", "operational", "not_configured"}
     assert payload["trafegus"] == "checking"
     assert payload["trafegus_detail"]["last_success_at"] is None
     assert payload["location"] is None
