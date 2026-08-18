@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+import pytest
 
 from app import main as main_module
 from app.services.fleet_tracking import (
@@ -9,6 +10,8 @@ from app.services.fleet_tracking import (
     _speed,
     _weather_risk,
 )
+from app.integrations.tomtom import UnavailableError
+from app.services.route_deviation import route_deviation_service
 
 
 def _raw_fleet() -> dict:
@@ -107,6 +110,59 @@ def test_weather_risk_uses_forecast_without_inventing_delay() -> None:
     assert risk["type"] == "thunderstorm"
     assert risk["severity"] == "high"
     assert "delay_minutes" not in risk
+
+
+def _weather_trip() -> dict:
+    return {"position":{"latitude":-19.9,"longitude":-44.1},"operational":{"route_id":"persisted"},"route_progress":{"progress_percent":25,"remaining_distance_km":220},"weather_risks":[],"api_status":{"openweather":"not_checked","tomtom":"not_checked"}}
+
+
+@pytest.mark.asyncio
+async def test_persisted_geometry_enriches_weather_with_routing_disabled(monkeypatch) -> None:
+    service=FleetTrackingService(); calls=[]
+    monkeypatch.setattr(route_deviation_service,"geometry",lambda _: {"geometry":[{"latitude":-20+i,"longitude":-44+i} for i in range(6)]})
+    async def forecast(lat,lon,passage): calls.append((lat,lon)); return {"weather":[{"id":202,"description":"tempestade"}],"rain":{"3h":12}}
+    monkeypatch.setattr(service,"_forecast",forecast)
+    trip=_weather_trip(); await service._weather_from_persisted_route(trip)
+    assert len(calls)==3 and len(trip["weather_risks"])==3
+    assert trip["api_status"]["openweather"]=="connected"
+    assert trip["api_status"]["tomtom"]=="not_checked"
+
+
+@pytest.mark.asyncio
+async def test_missing_geometry_does_not_call_weather_and_explains_reason(monkeypatch) -> None:
+    service=FleetTrackingService(); monkeypatch.setattr(route_deviation_service,"geometry",lambda _: None)
+    async def unexpected(*_): raise AssertionError("weather must not be called")
+    monkeypatch.setattr(service,"_forecast",unexpected); trip=_weather_trip(); await service._weather_from_persisted_route(trip)
+    assert trip["api_status"]["openweather"]=="not_checked"
+    assert trip["api_status"]["openweather_reason"]=="route_geometry_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("forecast,expected",[({"weather":[{"id":800,"description":"céu limpo"}]},0),({"weather":[{"id":501,"description":"chuva"}]},3)])
+async def test_openweather_result_only_creates_real_risks(monkeypatch,forecast,expected) -> None:
+    service=FleetTrackingService(); monkeypatch.setattr(route_deviation_service,"geometry",lambda _: {"geometry":[{"latitude":-20+i,"longitude":-44+i} for i in range(5)]})
+    async def result(*_): return forecast
+    monkeypatch.setattr(service,"_forecast",result); trip=_weather_trip(); await service._weather_from_persisted_route(trip)
+    assert len(trip["weather_risks"])==expected and trip["api_status"]["openweather"]=="connected"
+
+
+@pytest.mark.asyncio
+async def test_openweather_failure_keeps_operational_trip(monkeypatch) -> None:
+    service=FleetTrackingService(); monkeypatch.setattr(route_deviation_service,"geometry",lambda _: {"geometry":[{"latitude":-20+i,"longitude":-44+i} for i in range(5)]})
+    async def failure(*_): raise UnavailableError("temporary")
+    monkeypatch.setattr(service,"_forecast",failure); trip=_weather_trip(); await service._weather_from_persisted_route(trip)
+    assert trip["weather_risks"]==[] and trip["api_status"]["openweather"]=="unavailable"
+
+
+@pytest.mark.asyncio
+async def test_forecast_cache_avoids_repeated_openweather_calls(monkeypatch) -> None:
+    service=FleetTrackingService(); calls=0
+    async def forecast(*_):
+        nonlocal calls; calls+=1; return {"list":[{"dt":datetime.now(timezone.utc).timestamp(),"weather":[{"id":800}]}]}
+    monkeypatch.setattr("app.services.fleet_tracking.WeatherClient.get_forecast_by_coords",forecast)
+    passage=datetime.now(timezone.utc)
+    await service._forecast(-19.98,-44.26,passage); await service._forecast(-19.98,-44.26,passage)
+    assert calls==1 and len(service._weather_cache)==1
 
 
 def test_speed_accepts_provider_case_and_preserves_stopped_vehicle() -> None:

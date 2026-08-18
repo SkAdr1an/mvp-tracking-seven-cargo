@@ -264,14 +264,18 @@ class FleetTrackingService:
                     "reason": "Viagem encerrada ou retorno aguardando decisão operacional",
                 }
                 return
-            if not trip.get("position") or not (trip.get("destination") or {}).get("position"):
+            if not trip.get("position"):
                 return
             if not get_settings().fleet_routing_enabled:
+                async with semaphore:
+                    await self._weather_from_persisted_route(trip)
                 trip["prediction"] = {
                     "status": "unavailable",
                     "reason": "Roteamento automático por viagem desativado para controle de consumo",
                 }
                 trip["api_status"]["tomtom"] = "automatic_routing_disabled"
+                return
+            if not (trip.get("destination") or {}).get("position"):
                 return
             async with semaphore:
                 await self._enrich_prediction(trip)
@@ -295,6 +299,34 @@ class FleetTrackingService:
                 if operation.get("trip_key") else None,
             )
             self._ensure_operational_classification(trip)
+
+    async def _weather_from_persisted_route(self, trip: dict[str, Any]) -> None:
+        """Enrich weather without enabling per-trip external routing."""
+        from app.services.route_deviation import route_deviation_service
+
+        operation = trip.get("operational") or {}
+        route_id = operation.get("route_id")
+        persisted = route_deviation_service.geometry(str(route_id)) if route_id else None
+        points = (persisted or {}).get("geometry") or []
+        valid = [
+            {"latitude": float(point["latitude"]), "longitude": float(point["longitude"])}
+            for point in points
+            if isinstance(point, dict)
+            and isinstance(point.get("latitude"), (int, float))
+            and isinstance(point.get("longitude"), (int, float))
+        ]
+        if len(valid) < 3:
+            trip["api_status"]["openweather"] = "not_checked"
+            trip["api_status"]["openweather_reason"] = "route_geometry_unavailable"
+            return
+        progress = trip.get("route_progress") or {}
+        percent = progress.get("progress_percent")
+        if isinstance(percent, (int, float)) and 0 <= percent <= 100:
+            start = min(round((len(valid) - 1) * percent / 100), len(valid) - 3)
+            valid = valid[max(start, 0):]
+        remaining_km = progress.get("remaining_distance_km")
+        remaining_minutes = max(float(remaining_km), 0) / 55 * 60 if isinstance(remaining_km, (int, float)) else 0
+        await self._weather_along_route(trip, valid, remaining_minutes)
 
     @staticmethod
     def _ensure_operational_classification(trip: dict[str, Any]) -> None:
