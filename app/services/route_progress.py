@@ -24,7 +24,30 @@ class RouteProgressService:
         if previous and advanced<previous["advanced_distance_km"]:
             drop=previous["advanced_distance_km"]-advanced
             if drop<2 or not self._confirmed_return(trip_key,points,cumulative,advanced):advanced=previous["advanced_distance_km"]
-        advanced=max(0,min(advanced,total));remaining=max(total-advanced,0);progress=max(0,min(advanced/total*100 if total else 0,100))
+        advanced=max(0,min(advanced,total));remaining=max(total-advanced,0)
+        route = self.repository.route(route_id)
+        destination_distance = None
+        if route:
+            destination_distance = self._distance(
+                (latitude, longitude),
+                (float(route["destination_latitude"]), float(route["destination_longitude"])),
+            )
+            # A projection can snap to a late/crossing segment even while the
+            # vehicle is clearly far from the destination. Direct distance is a
+            # conservative lower bound for the remaining route in that case.
+            if destination_distance * 1000 > float(route["destination_radius_m"]):
+                remaining = max(remaining, destination_distance)
+                guarded_advanced = min(advanced, max(total - remaining, 0))
+                prior_advanced = float(previous["advanced_distance_km"]) if previous else None
+                if (
+                    prior_advanced is not None
+                    and 0 < prior_advanced - guarded_advanced < 2
+                    and prior_advanced < total - 0.1
+                ):
+                    advanced = prior_advanced
+                else:
+                    advanced = guarded_advanced
+        progress=max(0,min(advanced/total*100 if total else 0,100))
         geometry=self._geometry(route_id);corridor=float((geometry or {}).get("corridor_m",300));outside=lateral*1000>corridor
         route_state="STALE" if stale else "OUTSIDE" if outside else "ON_ROUTE"
         confidence="LOW" if stale else "MEDIUM" if outside else "HIGH"
