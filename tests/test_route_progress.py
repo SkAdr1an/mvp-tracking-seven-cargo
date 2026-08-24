@@ -7,6 +7,16 @@ from app.storage.operations import OperationsRepository, utc_now
 
 def service_at(tmp_path):
     repository=OperationsRepository(tmp_path/"operations.db");TripOperationsService(repository)
+    route = repository.route("betim-jaboatao")
+    repository.upsert_route({
+        **route,
+        "origin_latitude": 0.0,
+        "origin_longitude": 0.0,
+        "destination_latitude": 0.0,
+        "destination_longitude": 3.0,
+        "origin_radius_m": 1000,
+        "destination_radius_m": 1000,
+    })
     repository.ensure_trip("trip:progress","ABC1D23","progress","betim-jaboatao")
     geometry=[{"latitude":0.0,"longitude":value} for value in (0.0,1.0,2.0,3.0)]
     with repository.connect() as connection:
@@ -42,4 +52,31 @@ def test_small_gps_oscillation_does_not_reduce_and_restart_preserves(tmp_path):
     stale=restarted.calculate("trip:progress","betim-jaboatao",0,2.1,80,"2026-07-22T08:00:00+00:00",True)
     assert stale["confidence"]=="LOW" and stale["speed_kmh"] is None and stale["speed_state"]=="STALE"
     assert stale["advanced_distance_km"]==first["advanced_distance_km"]
+
+
+def test_projection_near_route_end_cannot_report_complete_while_destination_is_far(tmp_path):
+    service = service_at(tmp_path)
+    # A late segment passes close to the vehicle, but the configured destination
+    # remains hundreds of kilometres away.
+    with service.repository.connect() as connection:
+        connection.execute("DELETE FROM route_geometry_versions WHERE route_id=?", ("betim-jaboatao",))
+        geometry = [
+            {"latitude": 0.0, "longitude": 0.0},
+            {"latitude": 0.0, "longitude": 3.0},
+            {"latitude": 1.0, "longitude": 1.0},
+        ]
+        connection.execute(
+            """INSERT INTO route_geometry_versions(
+                   route_id,version,source,geometry_json,mandatory_points_json,corridor_m,
+                   segment_tolerances_json,active,created_at
+               ) VALUES(?,?,?,?,?,?,?,?,?)""",
+            ("betim-jaboatao", "crossing-v2", "test", json.dumps(geometry), "[]", 300, "[]", 1, utc_now()),
+        )
+    service._cache.clear()
+    value = service.calculate(
+        "trip:progress", "betim-jaboatao", 1.0, 1.0, 40,
+        "2026-07-22T10:00:00+00:00", False,
+    )
+    assert value["progress_percent"] < 100
+    assert value["remaining_distance_km"] > 0
 

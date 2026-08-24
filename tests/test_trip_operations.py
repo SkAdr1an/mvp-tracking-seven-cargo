@@ -97,51 +97,52 @@ def outside(service, when, **kwargs):
 def advance_to_trip(service, start):
     at_origin(service, start)
     at_origin(service, start + timedelta(minutes=1))
-    at_origin(service, start + timedelta(minutes=11))
-    outside(service, start + timedelta(minutes=12), speed=30)
-    return outside(service, start + timedelta(minutes=13), speed=35)
+    outside(service, start + timedelta(minutes=2), speed=30)
+    return outside(service, start + timedelta(minutes=3), speed=35)
 
 
-def test_origin_entry_dwell_and_departure_start_trip(tmp_path):
+def test_confirmed_origin_exit_starts_without_loading_dwell(tmp_path):
     service = service_at(tmp_path)
     start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
     assert at_origin(service, start)["trip"]["state"] == "PROGRAMADA"
     assert at_origin(service, start + timedelta(minutes=1))["trip"]["state"] == "NA_ORIGEM"
-    confirmed = at_origin(service, start + timedelta(minutes=11))["trip"]
-    assert confirmed["state"] == "EM_CARREGAMENTO"
-    assert confirmed["arrived_origin_at"] == start.isoformat()
-    assert outside(service, start + timedelta(minutes=12), speed=30)["trip"]["state"] == "EM_CARREGAMENTO"
-    started = outside(service, start + timedelta(minutes=13), speed=30)["trip"]
+    assert outside(service, start + timedelta(minutes=2), speed=30)["trip"]["started_at"] is None
+    started = outside(service, start + timedelta(minutes=3), speed=30)["trip"]
     assert started["state"] == "EM_VIAGEM"
-    assert started["started_at"] == (start + timedelta(minutes=12)).isoformat()
+    assert started["started_at"] == (start + timedelta(minutes=2)).isoformat()
 
 
-def test_destination_dwell_and_automatic_finish_after_thirty_minutes(tmp_path):
+def test_destination_arrival_and_automatic_finish_after_continuous_fifteen_minutes(tmp_path):
     service = service_at(tmp_path)
     start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
     advance_to_trip(service, start)
-    at_destination(service, start + timedelta(minutes=20), speed=2)
-    entered = at_destination(service, start + timedelta(minutes=21), speed=1)["trip"]
+    outside(service, start + timedelta(minutes=4), speed=30)
+    at_destination(service, start + timedelta(minutes=20), speed=20)
+    entered = at_destination(service, start + timedelta(minutes=21), speed=20)["trip"]
     assert entered["state"] == "NO_DESTINO"
-    confirmed = at_destination(service, start + timedelta(minutes=31), speed=0)["trip"]
-    assert confirmed["arrived_destination_at"] == (start + timedelta(minutes=20)).isoformat()
-    finished = at_destination(service, start + timedelta(minutes=50), speed=0)["trip"]
+    assert entered["arrived_destination_at"] == (start + timedelta(minutes=20)).isoformat()
+    for minutes in (23, 26, 29, 32):
+        assert at_destination(service, start + timedelta(minutes=minutes), speed=40)["trip"]["finished_at"] is None
+    almost = at_destination(service, start + timedelta(minutes=34, seconds=59), speed=40)["trip"]
+    assert almost["state"] == "NO_DESTINO"
+    finished = at_destination(service, start + timedelta(minutes=35), speed=40)["trip"]
     assert finished["state"] == "FINALIZADA_NO_SISTEMA"
     assert finished["finish_type"] == "automatic"
     events = service.repository.events("trafegus:trip-1")
     assert sum(event["event_type"] == "TRIP_AUTO_FINISHED" for event in events) == 1
 
 
-def test_missing_speed_is_currently_treated_as_stopped_at_destination(tmp_path):
+def test_missing_speed_does_not_prevent_destination_finish(tmp_path):
     service = service_at(tmp_path)
     start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
     advance_to_trip(service, start)
+    outside(service, start + timedelta(minutes=4), speed=30)
     at_destination(service, start + timedelta(minutes=20), speed=None)
     entered = at_destination(service, start + timedelta(minutes=21), speed=None)["trip"]
     assert entered["state"] == "NO_DESTINO"
-    confirmed = at_destination(service, start + timedelta(minutes=31), speed=None)["trip"]
-    assert confirmed["arrived_destination_at"] == (start + timedelta(minutes=20)).isoformat()
-    finished = at_destination(service, start + timedelta(minutes=50), speed=None)["trip"]
+    for minutes in (23, 26, 29, 32):
+        at_destination(service, start + timedelta(minutes=minutes), speed=None)
+    finished = at_destination(service, start + timedelta(minutes=35), speed=None)["trip"]
     assert finished["state"] == "FINALIZADA_NO_SISTEMA"
     assert finished["finish_type"] == "automatic"
 
@@ -151,11 +152,13 @@ def test_quick_destination_passage_does_not_finish(tmp_path):
     start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
     service.repository.ensure_trip("trafegus:trip-1", PLATE, "trip-1", "betim-jaboatao")
     service.repository.update_trip("trafegus:trip-1", state="EM_VIAGEM")
-    at_destination(service, start, speed=35)
-    assert at_destination(service, start + timedelta(minutes=1), speed=30)["trip"]["state"] == "NO_DESTINO"
-    outside(service, start + timedelta(minutes=2), speed=50)
-    result = outside(service, start + timedelta(minutes=3), speed=50)
-    assert result["trip"]["state"] == "EM_VIAGEM"
+    outside(service, start, speed=35)
+    outside(service, start + timedelta(minutes=1), speed=35)
+    at_destination(service, start + timedelta(minutes=2), speed=35)
+    assert at_destination(service, start + timedelta(minutes=3), speed=30)["trip"]["state"] == "NO_DESTINO"
+    result = outside(service, start + timedelta(minutes=4), speed=50)
+    assert result["trip"]["state"] == "NO_DESTINO"
+    assert result["trip"]["destination_entered_at"] is None
     assert result["trip"]["finished_at"] is None
 
 
@@ -191,7 +194,98 @@ def test_restart_recovers_persisted_state(tmp_path):
     restarted = TripOperationsService(OperationsRepository(path))
     trip = restarted.repository.trip("trafegus:trip-1")
     assert trip and trip["state"] == "EM_VIAGEM"
-    assert trip["started_at"] == (start + timedelta(minutes=12)).isoformat()
+    assert trip["started_at"] == (start + timedelta(minutes=2)).isoformat()
+
+
+def test_restart_between_origin_exit_readings_uses_persisted_history(tmp_path):
+    path = tmp_path / "operations.db"
+    first = TripOperationsService(OperationsRepository(path))
+    start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
+    at_origin(first, start)
+    at_origin(first, start + timedelta(minutes=1))
+    outside(first, start + timedelta(minutes=2), speed=30)
+
+    restarted = TripOperationsService(OperationsRepository(path))
+    trip = outside(restarted, start + timedelta(minutes=3), speed=30)["trip"]
+    assert trip["state"] == "EM_VIAGEM"
+    assert trip["started_at"] == (start + timedelta(minutes=2)).isoformat()
+
+
+def test_missing_start_is_reconstructed_once_without_overwriting_existing_marker(tmp_path):
+    service = service_at(tmp_path)
+    start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
+    advance_to_trip(service, start)
+    key = "trafegus:trip-1"
+    service.repository.update_trip(key, state="PROGRAMADA", started_at=None)
+
+    result = outside(service, start + timedelta(minutes=4), speed=40)["trip"]
+    assert result["started_at"] == (start + timedelta(minutes=2)).isoformat()
+    outside(service, start + timedelta(minutes=5), speed=40)
+    events = [event for event in service.repository.events(key) if event["event_type"] == "TRIP_STARTED"]
+    assert len(events) == 1
+    assert events[0]["metadata"]["reconstructed_from_position_history"] is True
+
+
+def test_first_destination_point_needs_confirmed_outside_to_inside_transition(tmp_path):
+    service = service_at(tmp_path)
+    start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
+    service.repository.ensure_trip("trafegus:trip-1", PLATE, "trip-1", "betim-jaboatao")
+    service.repository.update_trip("trafegus:trip-1", state="EM_VIAGEM")
+    assert at_destination(service, start)["trip"]["arrived_destination_at"] is None
+    assert at_destination(service, start + timedelta(minutes=1))["trip"]["arrived_destination_at"] is None
+
+
+def test_destination_exit_resets_dwell_and_reentry_starts_new_window(tmp_path):
+    service = service_at(tmp_path)
+    start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
+    advance_to_trip(service, start)
+    outside(service, start + timedelta(minutes=4), speed=30)
+    at_destination(service, start + timedelta(minutes=5))
+    at_destination(service, start + timedelta(minutes=6))
+    for minutes in (8, 10, 12):
+        at_destination(service, start + timedelta(minutes=minutes))
+    exited = outside(service, start + timedelta(minutes=13), speed=30)["trip"]
+    assert exited["destination_entered_at"] is None
+
+    at_destination(service, start + timedelta(minutes=14))
+    at_destination(service, start + timedelta(minutes=15))
+    for minutes in (17, 20, 23, 26):
+        assert at_destination(service, start + timedelta(minutes=minutes))["trip"]["finished_at"] is None
+    finished = at_destination(service, start + timedelta(minutes=29))["trip"]
+    assert finished["state"] == "FINALIZADA_NO_SISTEMA"
+    assert finished["arrived_destination_at"] == (start + timedelta(minutes=5)).isoformat()
+
+
+def test_tracking_gap_does_not_count_as_continuous_destination_dwell(tmp_path):
+    service = service_at(tmp_path)
+    start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
+    advance_to_trip(service, start)
+    outside(service, start + timedelta(minutes=4), speed=30)
+    at_destination(service, start + timedelta(minutes=5))
+    at_destination(service, start + timedelta(minutes=6))
+    after_gap = at_destination(service, start + timedelta(minutes=21))["trip"]
+    assert after_gap["state"] == "NO_DESTINO"
+    assert after_gap["destination_entered_at"] == (start + timedelta(minutes=21)).isoformat()
+    assert after_gap["finished_at"] is None
+
+
+def test_geometric_progress_at_one_hundred_never_finishes_lifecycle(tmp_path):
+    service = service_at(tmp_path)
+    start = datetime(2026, 7, 22, 10, tzinfo=timezone.utc)
+    service.repository.ensure_trip("trafegus:trip-1", PLATE, "trip-1", "betim-jaboatao")
+    service.repository.update_trip("trafegus:trip-1", state="EM_VIAGEM")
+    service.repository.save_route_progress({
+        "trip_key": "trafegus:trip-1", "route_id": "betim-jaboatao",
+        "geometry_version": "test", "total_distance_km": 100,
+        "advanced_distance_km": 100, "remaining_distance_km": 0,
+        "progress_percent": 100, "return_distance_km": None,
+        "route_state": "ON_ROUTE", "confidence": "HIGH",
+        "position_at": start.isoformat(), "speed_kmh": 50,
+        "speed_state": "CURRENT", "last_reliable": None,
+    })
+    result = outside(service, start, speed=50)["trip"]
+    assert result["state"] == "EM_VIAGEM"
+    assert result["finished_at"] is None
 
 
 def test_manual_correction_finalize_and_reopen_require_history(tmp_path):

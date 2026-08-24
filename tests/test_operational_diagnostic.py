@@ -161,6 +161,24 @@ def test_finished_and_unconfirmed_return_have_no_operational_eta(tmp_path):
     assert service.calculate(waiting, now=NOW) is None
 
 
+def test_programmed_trip_with_transit_evidence_receives_eta(tmp_path):
+    service, _ = service_at(tmp_path)
+    value = trip(state="PROGRAMADA")
+    value["operational"]["geofences"] = {"origin": "outside", "destination": "outside"}
+    value["route_progress"]["progress_percent"] = 35
+    result = service.calculate(value, now=NOW)
+    assert result is not None
+    assert result["eta_at"] > NOW.isoformat()
+
+
+def test_programmed_trip_without_transit_evidence_has_no_eta(tmp_path):
+    service, _ = service_at(tmp_path)
+    value = trip(state="PROGRAMADA")
+    value["operational"]["geofences"] = {"origin": "inside", "destination": "outside"}
+    value["route_progress"]["progress_percent"] = 0
+    assert service.calculate(value, now=NOW) is None
+
+
 def test_persistence_survives_restart_and_no_external_call_is_added(tmp_path):
     service, repository = service_at(tmp_path)
     expected = service.calculate(trip(), now=NOW)
