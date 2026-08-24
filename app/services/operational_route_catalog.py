@@ -106,7 +106,7 @@ class OperationalRouteCatalog:
             "destination_exit_radius_m": destination["exit_radius_m"],
             "origin_dwell_minutes": 10,
             "destination_dwell_minutes": 10,
-            "destination_finish_minutes": 30,
+            "destination_finish_minutes": 15,
             "stop_speed_max_kmh": 5,
             "consecutive_readings": 2,
             "operational_duration_minutes": spec["sla_minutes"],

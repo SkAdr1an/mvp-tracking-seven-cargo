@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS route_configs (
     destination_exit_radius_m REAL NOT NULL DEFAULT 650,
     origin_dwell_minutes REAL NOT NULL DEFAULT 10,
     destination_dwell_minutes REAL NOT NULL DEFAULT 10,
-    destination_finish_minutes REAL NOT NULL DEFAULT 30,
+    destination_finish_minutes REAL NOT NULL DEFAULT 15,
     stop_speed_max_kmh REAL NOT NULL DEFAULT 5,
     consecutive_readings INTEGER NOT NULL DEFAULT 2,
     sla_minutes INTEGER,
@@ -482,7 +482,14 @@ class OperationsRepository:
 
     def position_history(self, trip_key: str, limit: int = 1500) -> list[dict[str, Any]]:
         with self.connect() as connection:
-            rows=connection.execute("SELECT latitude,longitude,speed_kmh,recorded_at,source FROM operational_positions WHERE trip_key=? AND accepted=1 ORDER BY recorded_at DESC LIMIT ?",(trip_key,limit)).fetchall()
+            rows=connection.execute(
+                """SELECT latitude,longitude,speed_kmh,recorded_at,source,
+                          origin_distance_m,destination_distance_m
+                   FROM operational_positions
+                   WHERE trip_key=? AND accepted=1
+                   ORDER BY recorded_at DESC LIMIT ?""",
+                (trip_key,limit),
+            ).fetchall()
         return [dict(row) for row in reversed(rows)]
 
     def raw_position_history(self, trip_key: str, limit: int = 2000) -> list[dict[str, Any]]:

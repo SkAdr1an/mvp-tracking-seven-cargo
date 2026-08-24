@@ -5,7 +5,7 @@ import logging
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +15,8 @@ from app.storage.operations import OperationsRepository
 
 
 logger = logging.getLogger(__name__)
+
+DESTINATION_CONTINUOUS_DWELL_MINUTES = 15
 
 
 TRIP_STATES = {
@@ -38,7 +40,7 @@ BETIM_JABOATAO_ROUTE = {
     "destination_exit_radius_m": 1150,
     "origin_dwell_minutes": 10,
     "destination_dwell_minutes": 10,
-    "destination_finish_minutes": 30,
+    "destination_finish_minutes": DESTINATION_CONTINUOUS_DWELL_MINUTES,
     "stop_speed_max_kmh": 5,
     "consecutive_readings": 2,
     "sla_minutes": None,
@@ -61,7 +63,7 @@ SAO_BERNARDO_CONTAGEM_ROUTE = {
     "destination_exit_radius_m": 650,
     "origin_dwell_minutes": 10,
     "destination_dwell_minutes": 10,
-    "destination_finish_minutes": 30,
+    "destination_finish_minutes": DESTINATION_CONTINUOUS_DWELL_MINUTES,
     "stop_speed_max_kmh": 5,
     "consecutive_readings": 2,
     "sla_minutes": 31 * 60,
@@ -312,11 +314,51 @@ class TripOperationsService:
         state = trip["state"]
         required = max(int(route["consecutive_readings"]), 1)
         inside_origin = origin_distance <= route["origin_radius_m"]
-        outside_origin = origin_distance >= route["origin_exit_radius_m"]
         inside_destination = destination_distance <= route["destination_radius_m"]
-        outside_destination = destination_distance >= route["destination_exit_radius_m"]
-        stopped = update.speed_kmh is None or update.speed_kmh <= route["stop_speed_max_kmh"]
+        history = self.repository.position_history(key, 2000)
+        origin_departure = self._confirmed_transition(
+            history, "origin_distance_m", float(route["origin_radius_m"]),
+            float(route["origin_exit_radius_m"]), required, entering=False,
+        )
+        destination_arrival = self._confirmed_transition(
+            history, "destination_distance_m", float(route["destination_radius_m"]),
+            float(route["destination_exit_radius_m"]), required, entering=True,
+        )
 
+        # Recover official milestones from accepted positions. Existing timestamps
+        # are immutable; idempotency keys prevent duplicate audit events.
+        if not trip.get("started_at") and origin_departure:
+            previous_state = state
+            fields["started_at"] = origin_departure
+            if state in {"PROGRAMADA", "NA_ORIGEM", "EM_CARREGAMENTO", "REABERTA_MANUALMENTE"}:
+                state = "EM_VIAGEM"
+                fields["state"] = state
+            self.repository.add_event(
+                key, "TRIP_STARTED", origin_departure, update.source,
+                "Início real reconstruído pela transição da geofence de origem",
+                previous_state, state,
+                metadata={"reconstructed_from_position_history": True},
+                idempotency_key=f"transition:TRIP_STARTED:{key}:{origin_departure}",
+            )
+
+        if not trip.get("arrived_destination_at") and destination_arrival:
+            previous_state = state
+            state = "NO_DESTINO"
+            fields.update(
+                state=state,
+                arrived_destination_at=destination_arrival,
+                destination_entered_at=destination_arrival,
+            )
+            self.repository.add_event(
+                key, "DESTINATION_ENTERED", destination_arrival, update.source,
+                "Chegada reconstruída pela transição da geofence de destino",
+                previous_state, state,
+                metadata={"reconstructed_from_position_history": True},
+                idempotency_key=f"transition:DESTINATION_ENTERED:{key}:{destination_arrival}",
+            )
+
+        # Arrival at origin remains an informational loading milestone. It no
+        # longer gates the official inside -> outside start transition.
         if state in {"PROGRAMADA", "REABERTA_MANUALMENTE"}:
             if inside_origin:
                 count = int(trip.get("origin_candidate_count") or 0) + 1
@@ -336,73 +378,33 @@ class TripOperationsService:
                                          recorded_at, update.source, "Presença na origem confirmada", fingerprint,
                                          {"entered_at": entered.isoformat()})
                 fields.update(state=state, arrived_origin_at=entered.isoformat())
-            elif outside_origin:
-                fields.update(state="PROGRAMADA", origin_candidate_count=0, origin_candidate_at=None,
-                              origin_entered_at=None)
-                self.repository.add_event(
-                    key, "ORIGIN_ENTRY_DISCARDED", recorded_at, update.source,
-                    "Entrada momentânea na origem descartada", "NA_ORIGEM", "PROGRAMADA",
-                    idempotency_key=f"discard-origin:{fingerprint}",
-                )
-                state = "PROGRAMADA"
-
-        if state == "EM_CARREGAMENTO":
-            if outside_origin:
-                count = int(trip.get("origin_exit_count") or 0) + 1
-                candidate = trip.get("origin_exit_candidate_at") or recorded_at
-                fields.update(origin_exit_count=count, origin_exit_candidate_at=candidate)
-                if count >= required:
-                    state = self._transition(key, state, "EM_VIAGEM", "TRIP_STARTED", candidate,
-                                             update.source, "Viagem iniciada", fingerprint)
-                    fields.update(state=state, started_at=candidate)
-            else:
-                fields.update(origin_exit_count=0, origin_exit_candidate_at=None)
-
-        if state == "EM_VIAGEM":
-            if inside_destination:
-                count = int(trip.get("destination_candidate_count") or 0) + 1
-                candidate = trip.get("destination_candidate_at") or recorded_at
-                fields.update(destination_candidate_count=count, destination_candidate_at=candidate)
-                if count >= required:
-                    state = self._transition(key, state, "NO_DESTINO", "DESTINATION_ENTERED", candidate,
-                                             update.source, "Chegou ao destino", fingerprint)
-                    fields.update(state=state, destination_entered_at=candidate)
-            else:
-                fields.update(destination_candidate_count=0, destination_candidate_at=None)
 
         if state == "NO_DESTINO":
-            entered = _utc(fields.get("destination_entered_at") or trip.get("destination_entered_at") or recorded_at)
-            arrived = fields.get("arrived_destination_at") or trip.get("arrived_destination_at")
-            dwell_minutes = (recorded - entered).total_seconds() / 60
-            if not arrived and inside_destination and stopped and dwell_minutes >= route["destination_dwell_minutes"]:
-                fields["arrived_destination_at"] = entered.isoformat()
-                arrived = entered.isoformat()
-                self.repository.add_event(
-                    key, "DESTINATION_PRESENCE_CONFIRMED", recorded_at, update.source,
-                    "Permanência no destino confirmada", "NO_DESTINO", "NO_DESTINO",
-                    metadata={"entered_at": entered.isoformat(), "dwell_minutes": round(dwell_minutes, 1)},
-                    idempotency_key=f"destination-confirmed:{key}:{entered.isoformat()}",
-                )
-            if arrived and inside_destination and stopped and dwell_minutes >= route["destination_finish_minutes"]:
-                state = self._transition(key, state, "FINALIZADA_NO_SISTEMA", "TRIP_AUTO_FINISHED",
-                                         recorded_at, "system:geofence", "Finalizada automaticamente somente no sistema",
-                                         fingerprint, {"trafegus_mutated": False})
-                fields.update(state=state, finished_at=recorded_at, finish_type="automatic")
-            elif not arrived and outside_destination:
-                count = int(trip.get("destination_exit_count") or 0) + 1
-                fields["destination_exit_count"] = count
-                if count >= required:
-                    fields.update(state="EM_VIAGEM", destination_candidate_count=0,
-                                  destination_candidate_at=None, destination_entered_at=None,
-                                  destination_exit_count=0)
-                    self.repository.add_event(
-                        key, "DESTINATION_PASSAGE_DISCARDED", recorded_at, update.source,
-                        "Passagem rápida próxima ao destino descartada", "NO_DESTINO", "EM_VIAGEM",
-                        idempotency_key=f"discard-destination:{fingerprint}",
-                    )
-                    state = "EM_VIAGEM"
+            continuous_since = self._continuous_inside_since(
+                history, "destination_distance_m", float(route["destination_radius_m"])
+            ) if inside_destination else None
+            if continuous_since:
+                fields["destination_entered_at"] = continuous_since
             else:
-                fields["destination_exit_count"] = 0
+                fields.update(
+                    destination_entered_at=None,
+                    destination_candidate_at=None,
+                    destination_candidate_count=0,
+                    destination_exit_count=0,
+                )
+            dwell_minutes = (
+                (recorded - _utc(continuous_since)).total_seconds() / 60
+                if continuous_since else 0
+            )
+            if continuous_since and dwell_minutes >= DESTINATION_CONTINUOUS_DWELL_MINUTES:
+                state = self._transition(
+                    key, state, "FINALIZADA_NO_SISTEMA", "TRIP_AUTO_FINISHED",
+                    recorded_at, "system:geofence",
+                    "Finalizada automaticamente somente no sistema", fingerprint,
+                    {"trafegus_mutated": False,
+                     "continuous_inside_minutes": round(dwell_minutes, 1)},
+                )
+                fields.update(state=state, finished_at=recorded_at, finish_type="automatic")
 
         result = self.repository.update_trip(key, **fields)
         from app.services.driver_history import DriverHistoryService
@@ -528,6 +530,71 @@ class TripOperationsService:
             metadata=metadata, idempotency_key=f"transition:{event_type}:{fingerprint}",
         )
         return new
+
+    @staticmethod
+    def _confirmed_transition(
+        history: list[dict[str, Any]], distance_field: str,
+        entry_radius: float, exit_radius: float, required: int, *, entering: bool,
+    ) -> str | None:
+        """Return the first target point of the first confirmed fence transition."""
+        source_count = 0
+        source_confirmed = False
+        target_count = 0
+        target_at: str | None = None
+        for point in history:
+            distance = point.get(distance_field)
+            if distance is None:
+                source_count = target_count = 0
+                target_at = None
+                continue
+            inside = float(distance) <= entry_radius
+            outside = float(distance) >= exit_radius
+            source = outside if entering else inside
+            target = inside if entering else outside
+            if source:
+                source_count += 1
+                if source_count >= required:
+                    source_confirmed = True
+                target_count = 0
+                target_at = None
+            elif target and source_confirmed:
+                if target_count == 0:
+                    target_at = point["recorded_at"]
+                target_count += 1
+                if target_count >= required:
+                    return target_at
+            elif not target:
+                # The hysteresis band does not undo a confirmed source side, but
+                # it interrupts an incomplete target confirmation sequence.
+                target_count = 0
+                target_at = None
+        return None
+
+    @staticmethod
+    def _continuous_inside_since(
+        history: list[dict[str, Any]], distance_field: str, entry_radius: float,
+    ) -> str | None:
+        if not history:
+            return None
+        maximum_gap = timedelta(
+            seconds=max(get_settings().fleet_collector_interval_seconds * 3, 180)
+        )
+        run_start: datetime | None = None
+        previous_at: datetime | None = None
+        for point in history:
+            distance = point.get(distance_field)
+            current_at = _utc(point["recorded_at"])
+            if (
+                distance is None
+                or float(distance) > entry_radius
+                or (previous_at is not None and current_at - previous_at > maximum_gap)
+            ):
+                run_start = None
+            if distance is not None and float(distance) <= entry_radius:
+                if run_start is None:
+                    run_start = current_at
+            previous_at = current_at
+        return run_start.isoformat() if run_start is not None else None
 
     def _geofence_status(self, trip: dict[str, Any]) -> dict[str, Any]:
         route = self.repository.route(trip["route_id"]) if trip.get("route_id") else None
