@@ -126,8 +126,8 @@ def test_mutations_are_401_without_a_session(
     assert response.status_code == 401, (method, path, response.text)
 
 
-@pytest.mark.parametrize("action", ["finalize", "reopen", "correct_times", "undo_detection"])
-def test_trip_action_permission_is_checked_before_mutation(tmp_path, monkeypatch, action) -> None:
+@pytest.mark.parametrize("action", ["finalize", "reopen"])
+def test_privileged_trip_action_permission_is_checked_before_mutation(tmp_path, monkeypatch, action) -> None:
     database = tmp_path / f"action-{action}.sqlite"
     _configure(database, monkeypatch)
     client, _ = _client_for(database, "MONITORING")
@@ -142,6 +142,37 @@ def test_trip_action_permission_is_checked_before_mutation(tmp_path, monkeypatch
     )
     assert response.status_code == 403
     assert calls == []
+
+
+def test_monitoring_status_correction_records_authenticated_actor(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "monitoring-correction.sqlite"
+    _configure(database, monkeypatch)
+    client, principal = _client_for(database, "MONITORING")
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(operations_api.trip_operations_service, "manual_action", lambda *args, **kwargs: None)
+    monkeypatch.setattr(operations_api.trip_operations_service, "detail", lambda *_: {"trip_key": "audited-trip"})
+    monkeypatch.setattr(
+        operations_api, "_audit",
+        lambda actor, action, resource, **values: captured.update({
+            "actor": actor, "action": action.value, "resource": resource, **values,
+        }),
+    )
+
+    response = client.post(
+        "/operations/trips/audited-trip/actions",
+        json={
+            "action": "correct_times",
+            "justification": "Correção operacional identificada",
+            "corrections": {"started_at": "2026-08-27T12:00:00+00:00"},
+        },
+    )
+
+    assert response.status_code == 200
+    assert captured["actor"] == principal
+    assert captured["action"] == "TRIP_STATUS_CORRECTED"
+    assert captured["resource"] == "trip"
+    assert captured["trip_key"] == "audited-trip"
+    assert captured["justification"] == "Correção operacional identificada"
 
 
 def test_incident_identity_comes_from_session_not_payload(tmp_path, monkeypatch) -> None:

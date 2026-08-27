@@ -169,7 +169,7 @@ export interface OperationalDiagnostic {
   angellira_context?: AngelLiraDiagnosticContext | null
 }
 
-export interface RouteProgress { geometry_version:string;total_distance_km:number;advanced_distance_km:number;remaining_distance_km:number;progress_percent:number;return_distance_km?:number|null;route_state:'ON_ROUTE'|'OUTSIDE'|'STALE';confidence:'HIGH'|'MEDIUM'|'LOW'|'UNAVAILABLE';position_at?:string|null;speed_kmh?:number|null;speed_state:'CURRENT'|'STALE'|'UNAVAILABLE';reason?:string }
+export interface RouteProgress { geometry_version:string;route_variant?:string|null;route_variant_name?:string|null;alternative_route?:boolean;total_distance_km:number;advanced_distance_km:number;remaining_distance_km:number;progress_percent:number;return_distance_km?:number|null;route_state:'ON_ROUTE'|'OUTSIDE'|'STALE';confidence:'HIGH'|'MEDIUM'|'LOW'|'UNAVAILABLE';position_at?:string|null;speed_kmh?:number|null;speed_state:'CURRENT'|'STALE'|'UNAVAILABLE';reason?:string }
 
 export type OperationalState = 'PROGRAMADA' | 'NA_ORIGEM' | 'EM_CARREGAMENTO' | 'EM_VIAGEM' | 'NO_DESTINO' | 'FINALIZADA_NO_SISTEMA' | 'REABERTA_MANUALMENTE' | 'RETORNO_SEVEN_CONFIRMADO' | 'RETORNO_CONCLUIDO' | 'CANCELADA'
 
@@ -253,6 +253,7 @@ export interface OperationalTrip {
   }
   return_candidate?: ReturnCandidate | null
   return_trip?: OperationalTrip | null
+  plan?: {scheduled_start_at?:string|null;scheduled_arrival_at?:string|null;customer_commitment_at?:string|null;planned_loading_minutes?:number;planned_stops_minutes?:number;operational_buffer_minutes?:number;source?:'SEVEN'|'CLIENT'|'TRAFEGUS';notes?:string|null}|null
 }
 
 export interface PanelSession {
@@ -266,7 +267,7 @@ export interface PanelSession {
 }
 
 export interface ManagedUser { id:string;username:string;display_name:string;role:'ADMIN'|'GR'|'MONITORING';status:'ACTIVE'|'INACTIVE';created_at:string;updated_at:string;last_login?:string|null;permissions:string[] }
-export interface OperationalObservation { id:string;trip_key:string;type:'GENERAL'|'STOP'|'DRIVER_CONTACT'|'GR_INTERVENTION'|'INCIDENT'|'OPERATIONAL_NOTE';type_label:string;content:string;occurred_at:string;created_at:string;status:'ACTIVE'|'CORRECTED'|'VOIDED';include_in_report:boolean;stop_id?:number|null;author:{user_id:string;username:string;display_name:string;role:string;role_label:string};correction?:{supersedes_observation_id?:string|null;reason?:string|null}|null;void?:{reason?:string|null}|null }
+export interface OperationalObservation { id:string;trip_key:string;type:'GENERAL'|'STOP'|'DRIVER_CONTACT'|'GR_INTERVENTION'|'INCIDENT'|'OPERATIONAL_NOTE';type_label:string;content:string;occurred_at:string;created_at:string;status:'ACTIVE'|'CORRECTED'|'VOIDED';include_in_report:boolean;stop_id?:number|null;author:{user_id:string;username:string;display_name:string;role:string;role_label:string};correction?:{supersedes_observation_id?:string|null;reason?:string|null}|null;void?:{reason?:string|null}|null;metadata?:{delay_category?:string;responsibility?:string;critical_impact?:boolean}|null }
 
 export interface PublicLinkStatus {
   id: string
@@ -299,7 +300,7 @@ export interface FleetSnapshot {
 
 export type IncidentCategory = 'ACIDENTE'|'CONGESTIONAMENTO'|'TRANSITO_LENTO'|'OBRA'|'INTERDICAO'|'VIA_FECHADA'|'VEICULO_PARADO'|'RISCO_VIA'|'RISCO_CLIMATICO'|'OCORRENCIA_MANUAL'|'OUTRO'
 export interface TrafficIncident { id:string;route_id:string;category:IncidentCategory;severity:'INFORMATIVO'|'ATENCAO'|'CRITICO';original_type?:string;source:string;description:string;road_name?:string;direction?:string;latitude:number;longitude:number;geometry:{type:string;coordinates:unknown};length_m?:number;delay_seconds?:number;delay_already_in_eta:boolean;started_at?:string;updated_at:string;expires_at:string;status:string;manual:boolean;information_source?:string;responsible_user?:string;affected_vehicles:Array<{trip_key?:string;plate?:string;distance_along_route_km:number;severity:string;reported_delay_seconds?:number;eta_adjustment_applied:boolean}> }
-export interface TrafficRoute { id:string;name:string;origin_name:string;destination_name:string;origin_latitude:number;origin_longitude:number;destination_latitude:number;destination_longitude:number;origin_radius_m:number;destination_radius_m:number;geometry:Array<{latitude:number;longitude:number}>;geometry_version?:string|null;geometry_source?:string|null;geometry_provider?:string|null;distance_m?:number|null;duration_seconds?:number|null }
+export interface TrafficRoute { id:string;name:string;origin_name:string;destination_name:string;origin_latitude:number;origin_longitude:number;destination_latitude:number;destination_longitude:number;origin_radius_m:number;destination_radius_m:number;geometry:Array<{latitude:number;longitude:number}>;alternative_geometries?:Array<{id:string;name:string;version:string;geometry:Array<{latitude:number;longitude:number}>}>;geometry_version?:string|null;geometry_source?:string|null;geometry_provider?:string|null;distance_m?:number|null;duration_seconds?:number|null }
 export interface TrafficSnapshot { incidents:TrafficIncident[];counts:{ACIDENTE:number;OBRA_INTERDICAO:number;TRECHO_LENTO:number;RISCO_CLIMATICO:number;MANUAL:number};snapshot?:{collected_at:string;status:string;request_count:number;incident_count:number};routes:TrafficRoute[];generated_at:string }
 
 export interface RouteDeviation { id:number;trip_key:string;plate:string;route_id:string;status:string;level:'INITIAL'|'MODERATE'|'MAXIMUM';started_at:string;current_distance_m:number;max_distance_m:number;exit_latitude:number;exit_longitude:number;acknowledged_at?:string|null;reason?:string|null;justification?:string|null;related_incidents:string[] }

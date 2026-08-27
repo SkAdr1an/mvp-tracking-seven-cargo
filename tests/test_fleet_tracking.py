@@ -12,6 +12,9 @@ from app.services.fleet_tracking import (
 )
 from app.integrations.tomtom import UnavailableError
 from app.services.route_deviation import route_deviation_service
+from app.services.trip_operations import trip_operations_service
+from app.storage.migrations import migrate_database
+from app.storage.operations import OperationsRepository
 
 
 def _raw_fleet() -> dict:
@@ -59,6 +62,16 @@ def test_normalizes_and_deduplicates_by_trip_identifier() -> None:
     assert trips[0]["position"] == {"latitude": -19.8, "longitude": -44.0}
     assert trips[0]["tracker"] == "SASCAR"
     assert trips[0]["destination"]["description"] == "CD destino"
+
+
+def test_finalized_trip_is_removed_from_active_fleet(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "finalized.sqlite"
+    migrate_database(database)
+    repository = OperationsRepository(database)
+    repository.ensure_trip("trafegus:123", "AWP7D63", "123", None)
+    repository.update_trip("trafegus:123", state="FINALIZADA_NO_SISTEMA", finished_at=datetime.now(timezone.utc).isoformat())
+    monkeypatch.setattr(trip_operations_service, "repository", repository)
+    assert FleetTrackingService()._normalize_trips(_raw_fleet()) == []
 
 
 def test_eta_classification_compares_against_sla() -> None:

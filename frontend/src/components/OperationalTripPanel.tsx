@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
-import { AlertTriangle, Archive, ArchiveRestore, CheckCircle2, Clock3, Download, History, MapPinned, Pencil, RotateCcw, Route, XCircle } from 'lucide-react'
+import { AlertTriangle, Archive, ArchiveRestore, CalendarClock, CheckCircle2, Clock3, Download, History, MapPinned, Pencil, RotateCcw, Route, XCircle } from 'lucide-react'
 import { api } from '../api'
 import type { AuditEvent, OperationalState, OperationalTrip } from '../types'
 import { OperationalActionDialog, type OperationalDialogField } from './OperationalActionDialog'
@@ -13,7 +13,8 @@ type DialogState =
   | { kind: 'action'; action: 'finalize' | 'reopen' | 'undo_detection' }
   | { kind: 'correct' }
   | { kind: 'return'; decision: 'YES' | 'NO' | 'LATER' }
-  | { kind: 'lifecycle'; action: 'cancel' | 'archive' | 'unarchive' }
+  | { kind: 'lifecycle'; action: 'archive' | 'unarchive' }
+  | { kind: 'schedule' }
 
 const labels: Record<OperationalState, string> = {
   PROGRAMADA: 'Programada', NA_ORIGEM: 'Na origem', EM_CARREGAMENTO: 'Em carregamento',
@@ -24,7 +25,7 @@ const labels: Record<OperationalState, string> = {
 }
 
 export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) {
-  const canReport=usePermission('reports:generate'),canCorrectStatus=usePermission('trips:status-correct'),canFinalize=usePermission('trips:finalize'),canReopen=usePermission('trips:reopen'),canPublicLink=usePermission('public-links:manage'),canEdit=usePermission('trips:edit'),canCancel=usePermission('trips:cancel'),canArchive=usePermission('trips:archive')
+  const canReport=usePermission('reports:generate'),canCorrectStatus=usePermission('trips:status-correct'),canFinalize=usePermission('trips:finalize'),canReopen=usePermission('trips:reopen'),canPublicLink=usePermission('public-links:manage'),canEdit=usePermission('trips:edit'),canArchive=usePermission('trips:archive')
   const queryClient = useQueryClient()
   const [dialog, setDialog] = useState<DialogState | null>(null)
   const [feedback, setFeedback] = useState('')
@@ -43,6 +44,7 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     mutationFn: (input: Parameters<typeof api.operationalAction>[1]) => api.operationalAction(initial.trip_key, input),
     onSuccess: (data) => {
       queryClient.setQueryData(['operational-trip', initial.trip_key], data)
+      void queryClient.invalidateQueries({queryKey:['fleet']})
       setDialog(null)
       setFeedback('Ação registrada com sucesso no histórico operacional.')
     },
@@ -57,13 +59,14 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     },
   })
   const lifecycle = useMutation({
-    mutationFn: (input: {action:'cancel'|'archive'|'unarchive';reason:string}) => api.tripLifecycle(initial.trip_key,input.action,input.reason),
+    mutationFn: (input: {action:'archive'|'unarchive';reason:string}) => api.tripLifecycle(initial.trip_key,input.action,input.reason),
     onSuccess: (data) => {
       queryClient.setQueryData(['operational-trip', initial.trip_key], data)
       void queryClient.invalidateQueries({ queryKey: ['fleet'] })
       setDialog(null); setFeedback('Ação registrada com sucesso no histórico operacional.')
     },
   })
+  const schedule = useMutation({mutationFn:(input:{start:string;arrival:string;justification:string})=>api.updateOperationalPlan(initial.trip_key,{...(trip.plan||{}),scheduled_start_at:new Date(input.start).toISOString(),scheduled_arrival_at:input.arrival?new Date(input.arrival).toISOString():trip.plan?.scheduled_arrival_at||null,source:'SEVEN',notes:input.justification}),onSuccess:()=>{void queryClient.invalidateQueries({queryKey:['operational-trip',initial.trip_key]});void queryClient.invalidateQueries({queryKey:['fleet']});setDialog(null);setFeedback('Reprogramação registrada e aplicada ao cálculo operacional.')}})
   const open = (next: DialogState) => { setFeedback(''); action.reset(); returnDecision.reset(); lifecycle.reset(); setDialog(next) }
   const confirm = (values: Record<string, string>) => {
     if (!dialog) return
@@ -75,6 +78,7 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
       justification: dialog.decision === 'LATER' ? 'Decisão adiada para verificação operacional' : values.justification,
     })
     if (dialog.kind === 'lifecycle') lifecycle.mutate({action:dialog.action,reason:values.reason})
+    if (dialog.kind === 'schedule') schedule.mutate({start:values.start,arrival:values.arrival,justification:values.justification})
   }
   const downloadReport = async () => {
     if (reportPending) return
@@ -102,10 +106,10 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     <div className="operation-actions">
       {canReport&&<button onClick={downloadReport} disabled={reportPending}><Download size={14} />{reportPending ? 'Gerando PDF...' : 'Baixar relatório PDF'}</button>}
       {canCorrectStatus&&!trip.archived_at&&trip.state!=='CANCELADA'&&<button onClick={()=>open({kind:'correct'})} disabled={action.isPending}><Pencil size={14} />Corrigir horários</button>}
+      {canEdit&&!trip.started_at&&!trip.archived_at&&trip.state!=='CANCELADA'&&<button onClick={()=>open({kind:'schedule'})} disabled={schedule.isPending}><CalendarClock size={14}/>Reprogramar saída</button>}
       {canFinalize&&!trip.archived_at&&!['FINALIZADA_NO_SISTEMA','RETORNO_CONCLUIDO','CANCELADA'].includes(trip.state)&&<button onClick={() => open({kind:'action',action:'finalize'})} disabled={action.isPending}><CheckCircle2 size={14} />Finalizar</button>}
       {canReopen&&!trip.archived_at&&trip.state === 'FINALIZADA_NO_SISTEMA' && <button onClick={() => open({kind:'action',action:'reopen'})} disabled={action.isPending}><RotateCcw size={14} />Reabrir</button>}
       {canCorrectStatus&&(trip.state === 'NO_DESTINO' || trip.state === 'NA_ORIGEM') && <button onClick={() => open({kind:'action',action:'undo_detection'})} disabled={action.isPending}><RotateCcw size={14} />Desfazer detecção</button>}
-      {canCancel&&!trip.archived_at&&!['FINALIZADA_NO_SISTEMA','RETORNO_CONCLUIDO','CANCELADA'].includes(trip.state)&&<button onClick={()=>open({kind:'lifecycle',action:'cancel'})} disabled={lifecycle.isPending}><XCircle size={14}/>Cancelar viagem</button>}
       {canArchive&&!trip.archived_at&&['FINALIZADA_NO_SISTEMA','RETORNO_CONCLUIDO','CANCELADA'].includes(trip.state)&&<button onClick={()=>open({kind:'lifecycle',action:'archive'})} disabled={lifecycle.isPending}><Archive size={14}/>Arquivar</button>}
       {canArchive&&trip.archived_at&&<button onClick={()=>open({kind:'lifecycle',action:'unarchive'})} disabled={lifecycle.isPending}><ArchiveRestore size={14}/>Desarquivar</button>}
     </div>
@@ -115,7 +119,7 @@ export function OperationalTripPanel({ initial }: { initial: OperationalTrip }) 
     {feedback && <div className="operation-feedback" role="status">{feedback}</div>}
     {canAudit&&<div className="operation-history"><h3><History size={15}/>Histórico / Auditoria operacional</h3>{audit.data?.events.length?audit.data.events.map(event=><AuditLine key={event.id} event={event}/>):<p>Nenhuma ação humana auditada nesta viagem.</p>}</div>}
     <div className="operation-history"><h3><History size={15} />Histórico</h3>{trip.events?.length ? trip.events.map((event) => <div key={event.id}><i /><span>{dateLabel(event.occurred_at)}</span><strong>{event.description}</strong><small>{event.source}{event.justification ? ` · ${event.justification}` : ''}</small></div>) : <p>Nenhum evento operacional registrado.</p>}</div>
-    {dialog && <OperationalActionDialog {...dialogConfig(dialog)} context={<><strong>{trip.current_driver || 'Motorista não informado'}</strong><span>Viagem {trip.trip_key}</span><span>{trip.route?.origin_name || 'Origem não informada'} → {trip.route?.destination_name || 'Destino não informado'}</span></>} pending={action.isPending || returnDecision.isPending || lifecycle.isPending} error={(action.error || returnDecision.error || lifecycle.error)?.message} onCancel={()=>setDialog(null)} onConfirm={confirm}/>}
+    {dialog && <OperationalActionDialog {...dialogConfig(dialog)} context={<><strong>{trip.current_driver || 'Motorista não informado'}</strong><span>Viagem {trip.trip_key}</span><span>{trip.route?.origin_name || 'Origem não informada'} → {trip.route?.destination_name || 'Destino não informado'}</span></>} pending={action.isPending || returnDecision.isPending || lifecycle.isPending || schedule.isPending} error={(action.error || returnDecision.error || lifecycle.error || schedule.error)?.message} onCancel={()=>setDialog(null)} onConfirm={confirm}/>}
   </div>
 }
 
@@ -123,10 +127,11 @@ function AuditLine({event}:{event:AuditEvent}){return <div><i/><span>{dateLabel(
 function auditLabel(value:string){return value.toLowerCase().replaceAll('_',' ').replace(/^./,letter=>letter.toUpperCase())}
 
 function dialogConfig(dialog: DialogState): { title: string; description: string; confirmLabel: string; danger?: boolean; fields: OperationalDialogField[] } {
+  if(dialog.kind==='schedule')return {title:'Reprogramar saída',description:'Atualize o horário operacional. A alteração será auditada e aplicada ao cálculo enquanto a saída não for confirmada.',confirmLabel:'Aplicar reprogramação',fields:[{name:'start',label:'Nova saída programada',type:'datetime-local'},{name:'arrival',label:'Novo compromisso de chegada (opcional)',type:'datetime-local'},{name:'justification',label:'Motivo da realocação',type:'textarea',minLength:5,hint:'Informe pelo menos 5 caracteres.'}]}
   if(dialog.kind==='lifecycle'){
-    const content={cancel:['Cancelar viagem','O cancelamento interrompe o acompanhamento automático e revoga os links públicos ativos.','Cancelar viagem'],archive:['Arquivar viagem','A viagem sairá das listas operacionais ativas, preservando todo o histórico.','Arquivar viagem'],unarchive:['Desarquivar viagem','A viagem voltará a aparecer nas consultas operacionais.','Desarquivar viagem']} as const
+    const content={archive:['Arquivar viagem','A viagem sairá das listas operacionais ativas, preservando todo o histórico.','Arquivar viagem'],unarchive:['Desarquivar viagem','A viagem voltará a aparecer nas consultas operacionais.','Desarquivar viagem']} as const
     const [title,description,confirmLabel]=content[dialog.action]
-    return {title,description,confirmLabel,danger:dialog.action!=='unarchive',fields:[{name:'reason',label:'Motivo / justificativa',type:'textarea',minLength:5,hint:'Informe pelo menos 5 caracteres.'}]}
+    return {title,description,confirmLabel,danger:dialog.action==='archive',fields:[{name:'reason',label:'Motivo / justificativa',type:'textarea',minLength:5,hint:'Informe pelo menos 5 caracteres.'}]}
   }
   if (dialog.kind === 'correct') return {
     title: 'Corrigir horário operacional', description: 'Revise o campo, o novo horário e a justificativa antes de registrar a correção.', confirmLabel: 'Registrar correção',
@@ -144,7 +149,7 @@ function dialogConfig(dialog: DialogState): { title: string; description: string
       ...(dialog.decision === 'LATER' ? [] : [{name:'justification',label:'Justificativa',type:'textarea' as const,minLength:5,hint:'Informe pelo menos 5 caracteres.'}]),
     ],
   }
-  const labels = { finalize:['Finalizar viagem','Confirme o encerramento manual desta viagem.','Finalizar viagem'], reopen:['Reabrir viagem','Confirme a reabertura desta viagem finalizada.','Reabrir viagem'], undo_detection:['Desfazer detecção','Confirme a remoção da detecção automática atual.','Desfazer detecção'] } as const
+  const labels = { finalize:['Finalizar viagem','A viagem sairá imediatamente da lista e do mapa. O histórico, a auditoria e o relatório permanecerão preservados.','Finalizar totalmente'], reopen:['Reabrir viagem','Confirme a reabertura desta viagem finalizada.','Reabrir viagem'], undo_detection:['Desfazer detecção','Confirme a remoção da detecção automática atual.','Desfazer detecção'] } as const
   const [title,description,confirmLabel]=labels[dialog.action]
   return {title,description,confirmLabel,danger:dialog.action==='finalize',fields:[{name:'justification',label:'Justificativa',type:'textarea',minLength:5,hint:'Informe pelo menos 5 caracteres.'}]}
 }

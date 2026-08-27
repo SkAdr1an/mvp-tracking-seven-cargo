@@ -7,7 +7,7 @@ const items: { page: Page; label: string; icon: typeof Map; permission?:string }
   { page: 'drivers', label: 'Motoristas', icon: Truck },
   { page: 'routes', label: 'Planejar rota', icon: Route, permission:'integrations:invoke' },
   { page: 'trafegus', label: 'Trafegus', icon: Waypoints, permission:'integrations:invoke' },
-  { page: 'integrations', label: 'Integrações', icon: CloudSun },
+  { page: 'integrations', label: 'Integrações', icon: CloudSun, permission:'integrations:invoke' },
   { page: 'angellira', label: 'Base AngelLira', icon: Database, permission:'settings:read' },
   { page: 'users', label: 'Usuários', icon: Users, permission:'users:read' },
   { page: 'audit', label: 'Auditoria', icon: History, permission:'audit:read-full' },

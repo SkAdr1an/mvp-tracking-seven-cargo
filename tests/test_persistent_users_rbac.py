@@ -36,7 +36,8 @@ ROLE_MATRIX = {
     "MONITORING": {
         "dashboard:read", "trips:read", "drivers:read", "incidents:read", "stops:read",
         "observations:create", "observations:correct-own", "stops:justify",
-        "incidents:create", "audit:read-operational",
+        "incidents:create", "audit:read-operational", "trips:status-correct",
+        "reports:generate", "public-links:manage",
     },
 }
 

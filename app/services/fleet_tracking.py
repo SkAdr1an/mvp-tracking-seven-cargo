@@ -28,6 +28,11 @@ _SLA_KEYS = (
     "viag_previsao_fim", "previsao_fim_recalculada", "previsao_chegada", "previsao_fim", "data_previsao_fim", "data_fim_prevista",
     "data_prevista_chegada", "sla", "sla_chegada", "data_entrega_prevista",
 )
+_SCHEDULED_START_KEYS = (
+    "viag_previsao_inicio", "previsao_inicio_recalculada", "previsao_inicio",
+    "data_previsao_inicio", "data_inicio_prevista", "data_prevista_saida",
+    "inicio_previsto", "saida_prevista",
+)
 
 
 class FleetTrackingService:
@@ -149,11 +154,13 @@ class FleetTrackingService:
                     )
                 )
                 if existing_trip and (
-                    existing_trip.get("state") == "CANCELADA" or existing_trip.get("archived_at")
+                    existing_trip.get("state") in {"FINALIZADA_NO_SISTEMA", "RETORNO_CONCLUIDO", "CANCELADA"}
+                    or existing_trip.get("archived_at")
                 ):
                     continue
                 destination = _destination(metadata)
                 sla = _first_datetime(metadata, _SLA_KEYS)
+                scheduled_start = _first_datetime(metadata, _SCHEDULED_START_KEYS)
                 route_description = _route_description(metadata)
                 driver_status = trip_operations_service.reconcile_driver(
                     plate=plate,
@@ -199,6 +206,7 @@ class FleetTrackingService:
                         trip_operations_service.recognize_route(route_description)
                     )
                     if item["operational"]:
+                        self._sync_provider_plan(item["operational"]["trip_key"], scheduled_start, sla)
                         detail = trip_operations_service.detail(item["operational"]["trip_key"])
                         if detail:
                             item["operational"] = detail
@@ -250,6 +258,36 @@ class FleetTrackingService:
                 normalized.append(item)
         return _deduplicate(normalized)
 
+    @staticmethod
+    def _sync_provider_plan(trip_key: str, scheduled_start: datetime | None, sla: datetime | None) -> None:
+        if not scheduled_start and not sla:
+            return
+        repository = trip_operations_service.repository
+        current = repository.plan(trip_key) or {}
+        incoming_start = scheduled_start.isoformat() if scheduled_start else current.get("scheduled_start_at")
+        incoming_arrival = sla.isoformat() if sla else current.get("scheduled_arrival_at")
+        if current.get("source") not in {None, "TRAFEGUS"}:
+            if incoming_start and incoming_start != current.get("scheduled_start_at"):
+                repository.add_event(
+                    trip_key, "SCHEDULE_SOURCE_DIVERGENCE", datetime.now(timezone.utc).isoformat(),
+                    "trafegus", "Horário do Trafegus diverge da reprogramação manual",
+                    metadata={"trafegus_scheduled_start_at": incoming_start,
+                              "manual_scheduled_start_at": current.get("scheduled_start_at")},
+                    idempotency_key=f"schedule-divergence:{trip_key}:{incoming_start}",
+                )
+            return
+        values = {
+            "scheduled_start_at": incoming_start,
+            "scheduled_arrival_at": incoming_arrival,
+            "customer_commitment_at": sla.isoformat() if sla else current.get("customer_commitment_at"),
+            "planned_loading_minutes": current.get("planned_loading_minutes") or 0,
+            "planned_stops_minutes": current.get("planned_stops_minutes") or 0,
+            "operational_buffer_minutes": current.get("operational_buffer_minutes") or 0,
+            "source": "TRAFEGUS", "notes": "Sincronizado automaticamente do Trafegus",
+        }
+        if any(values.get(key) != current.get(key) for key in ("scheduled_start_at", "scheduled_arrival_at", "customer_commitment_at")):
+            repository.save_plan(trip_key, values, "system:trafegus")
+
     async def _enrich_trips(self, trips: list[dict[str, Any]]) -> None:
         semaphore = asyncio.Semaphore(3)
 
@@ -283,9 +321,16 @@ class FleetTrackingService:
         await asyncio.gather(*(enrich(trip) for trip in trips))
         from app.services.traffic_monitoring import traffic_repository
         from app.services.route_deviation import route_deviation_service
+        from app.services.operational_observations import OperationalObservationService
+        observation_service = OperationalObservationService(trip_operations_service.repository.database_path)
         all_incidents = traffic_repository.incidents()
         for trip in trips:
             operation = trip.get("operational") or {}
+            plan = operation.get("plan") or {}
+            planned_commitment = plan.get("customer_commitment_at") or plan.get("scheduled_arrival_at")
+            if planned_commitment:
+                trip["sla_at"] = planned_commitment
+                trip.setdefault("prediction", {})["sla_at"] = planned_commitment
             relevant = [
                 incident for incident in all_incidents
                 if any(
@@ -299,6 +344,23 @@ class FleetTrackingService:
                 if operation.get("trip_key") else None,
             )
             self._ensure_operational_classification(trip)
+            if operation.get("trip_key") and not operation.get("started_at"):
+                observations = observation_service.list_for_trip(operation["trip_key"])
+                critical = next((item for item in observations if item.get("status") == "ACTIVE"
+                                 and (item.get("metadata") or {}).get("critical_impact")), None)
+                classification = "CRITICA" if critical else (
+                    "NORMAL" if _parse_datetime(plan.get("scheduled_start_at"))
+                    and _parse_datetime(plan.get("scheduled_start_at")) > datetime.now(timezone.utc)
+                    else "ATENCAO"
+                )
+                trip["prediction"]["classification"] = classification
+                trip["prediction"]["classification_source"] = "pre_departure_operational_state"
+                if trip.get("diagnostic"):
+                    trip["diagnostic"]["classification"] = classification
+                    trip["diagnostic"]["status_explanation"] = (
+                        f"Impacto operacional registrado: {critical['content']}"
+                        if critical else "Veículo ainda não teve saída confirmada; o relógio de trânsito não foi iniciado."
+                    )
 
     async def _weather_from_persisted_route(self, trip: dict[str, Any]) -> None:
         """Enrich weather without enabling per-trip external routing."""

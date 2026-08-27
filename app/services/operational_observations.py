@@ -171,7 +171,7 @@ class OperationalObservationService:
     def create(
         self, *, trip_key: str, observation_type: ObservationType, content: str,
         occurred_at: datetime, principal: Principal, stop_id: int | None = None,
-        include_in_report: bool = True,
+        include_in_report: bool = True, metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self._persistent_actor(principal)
         if occurred_at.tzinfo is None:
@@ -186,13 +186,33 @@ class OperationalObservationService:
                 observation_type=observation_type, content=_content(content),
                 occurred_at=occurred_at.astimezone(timezone.utc).isoformat(), principal=principal,
                 stop_id=stop_id, include_in_report=include_in_report, created_at=created_at,
-                created_from="PANEL",
+                created_from="PANEL", metadata=metadata,
             )
             row = connection.execute(
                 "SELECT * FROM operational_observations WHERE id=?", (identifier,)
             ).fetchone()
             assert row is not None
             return self._payload(row)
+
+    def accountability(self, *, active_only: bool = False) -> list[dict[str, Any]]:
+        condition = " AND o.status='ACTIVE'" if active_only else ""
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT o.*,t.plate,t.current_driver,t.route_id
+                   FROM operational_observations o
+                   JOIN operational_trips t ON t.trip_key=o.trip_key
+                   WHERE o.metadata_json IS NOT NULL""" + condition
+                + " ORDER BY o.occurred_at DESC,o.created_at DESC"
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = self._payload(row)
+            metadata = item.get("metadata") or {}
+            if not metadata.get("delay_category") or not metadata.get("responsibility"):
+                continue
+            item.update(plate=row["plate"], driver=row["current_driver"], route_id=row["route_id"])
+            result.append(item)
+        return result
 
     def list_for_trip(
         self, trip_key: str, *, active_report_only: bool = False,

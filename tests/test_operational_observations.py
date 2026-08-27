@@ -225,6 +225,39 @@ def test_stop_observation_requires_same_trip_and_preserves_stop_evidence(tmp_pat
         assert connection.execute("SELECT COUNT(*) FROM stop_evidence_events").fetchone()[0] == 1
 
 
+def test_delay_responsibility_is_structured_and_queryable(tmp_path, monkeypatch) -> None:
+    database = tmp_path / "accountability.sqlite"
+    service = _runtime(database, monkeypatch)
+    _trip(service.repository, "trip-delay")
+    client = _client(_identity(database, "monitor.delay"))
+    response = client.post(
+        "/operations/trips/trip-delay/observations",
+        json=_create_payload(
+            observation_type="OPERATIONAL_NOTE",
+            content="Aguardando emissão de nota no CD.",
+            delay_category="INVOICE",
+            responsibility="CUSTOMER_CD",
+            critical_impact=True,
+        ),
+    )
+    assert response.status_code == 201
+    assert response.json()["metadata"] == {
+        "critical_impact": True,
+        "delay_category": "INVOICE",
+        "responsibility": "CUSTOMER_CD",
+    }
+    report = client.get("/operations/delay-accountability")
+    assert report.status_code == 200
+    assert report.json()["counts_by_responsibility"] == {"CUSTOMER_CD": 1}
+    assert report.json()["items"][0]["driver"] is None
+
+    invalid = client.post(
+        "/operations/trips/trip-delay/observations",
+        json=_create_payload(delay_category="QUEUE"),
+    )
+    assert invalid.status_code == 422
+
+
 def test_read_order_snapshots_and_inactive_author_remain_available(tmp_path, monkeypatch) -> None:
     database = tmp_path / "read.sqlite"
     service = _runtime(database, monkeypatch)

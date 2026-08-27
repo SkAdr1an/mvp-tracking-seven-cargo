@@ -88,6 +88,8 @@ ROLE_PERMISSIONS: dict[Role, frozenset[Permission]] = {
         Permission.INCIDENTS_READ, Permission.STOPS_READ, Permission.OBSERVATIONS_CREATE,
         Permission.OBSERVATIONS_CORRECT_OWN, Permission.STOPS_JUSTIFY,
         Permission.INCIDENTS_CREATE, Permission.AUDIT_READ_OPERATIONAL,
+        Permission.TRIPS_STATUS_CORRECT, Permission.REPORTS_GENERATE,
+        Permission.PUBLIC_LINKS_MANAGE,
     }),
     Role.MANAGER: frozenset(),
     Role.OPERATIONS: frozenset(),

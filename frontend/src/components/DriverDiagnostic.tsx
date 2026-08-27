@@ -4,6 +4,7 @@ import type { Driver } from '../types'
 import { formatAgo } from '../utils'
 import { operationalAvailability, progressLabel } from '../driverPresentation'
 import { validDate } from '../dataSafety'
+import { CriticalStatusNotice } from './CriticalStatusNotice'
 
 export function DriverDiagnostic({ driver, onClose }: { driver: Driver; onClose: () => void }) {
   const value = driver.diagnostic
@@ -22,6 +23,7 @@ export function DriverDiagnostic({ driver, onClose }: { driver: Driver; onClose:
       <div className="diagnostic-identity"><span className="eyebrow">Diagnóstico operacional</span><h2>{driver.driver||'Motorista não informado'}</h2><p className="diagnostic-identity__vehicle">{driver.id}{driver.trailer_plate?` · ${driver.trailer_plate}`:''}</p><p className="diagnostic-identity__route">{route?.name||driver.route||'Rota não informada'} · {direction}</p><p>Atualizado {formatAgo(value.calculated_at)}</p></div>
       <div className="diagnostic-header__status"><Classification value={value.classification}/><button className="diagnostic-close" onClick={onClose} aria-label="Fechar diagnóstico"><X size={18}/></button></div>
     </header>
+    <CriticalStatusNotice driver={driver}/>
     <div className="diagnostic-explanation"><AlertTriangle size={18}/><strong>{value.status_explanation}</strong></div>
     {availability&&<div className="diagnostic-explanation" data-diagnostic-code={availability.code}><AlertTriangle size={18}/><strong>{availability.message}</strong></div>}
     <div className="diagnostic-kpis">

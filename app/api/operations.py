@@ -81,6 +81,9 @@ class ObservationCreateRequest(BaseModel):
     occurred_at: datetime
     stop_id: int | None = Field(default=None, ge=1)
     include_in_report: bool = True
+    delay_category: Literal["INVOICE", "QUEUE", "LOADING", "RELEASE", "SYSTEM", "OTHER"] | None = None
+    responsibility: Literal["DRIVER", "CUSTOMER_CD", "INTERNAL_TEAM", "CARRIER", "TRAFFIC_WEATHER", "UNDETERMINED"] | None = None
+    critical_impact: bool = False
 
     @model_validator(mode="after")
     def validate_observation(self):
@@ -88,6 +91,8 @@ class ObservationCreateRequest(BaseModel):
             raise ValueError("occurred_at must include timezone")
         if not self.content.strip():
             raise ValueError("content must not be empty")
+        if bool(self.delay_category) != bool(self.responsibility):
+            raise ValueError("delay_category and responsibility must be informed together")
         return self
 
 
@@ -198,6 +203,10 @@ async def create_observation(
             trip_key=trip_key, observation_type=payload.observation_type,
             content=payload.content, occurred_at=payload.occurred_at, principal=principal,
             stop_id=payload.stop_id, include_in_report=payload.include_in_report,
+            metadata={"delay_category": payload.delay_category,
+                      "responsibility": payload.responsibility,
+                      "critical_impact": payload.critical_impact}
+            if payload.delay_category else None,
         )
         _audit(principal, AuditAction.OBSERVATION_CREATED, "observation",
                resource_id=result["id"], trip_key=trip_key,
@@ -206,6 +215,16 @@ async def create_observation(
         return result
     except (KeyError, ValueError) as exc:
         raise _observation_error(exc) from exc
+
+
+@router.get("/delay-accountability", dependencies=[Depends(require_permission(Permission.AUDIT_READ_OPERATIONAL))])
+async def delay_accountability(active_only: bool = Query(default=False)) -> dict[str, Any]:
+    items = _observation_service().accountability(active_only=active_only)
+    counts: dict[str, int] = {}
+    for item in items:
+        responsibility = str((item.get("metadata") or {}).get("responsibility"))
+        counts[responsibility] = counts.get(responsibility, 0) + 1
+    return {"items": items, "counts_by_responsibility": counts, "total": len(items)}
 
 
 @router.post("/observations/{observation_id}/correction")

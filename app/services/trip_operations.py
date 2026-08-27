@@ -170,6 +170,11 @@ class TripOperationsService:
                 and ("CEVA" in origin or "SHOPEE" in origin)):
             return {"status": "RECOGNIZED", "route": routes.get(SAO_BERNARDO_CONTAGEM_ROUTE["id"]),
                     "method": "provider_endpoints", "reason": "sao_bernardo_to_contagem"}
+        if _endpoint_has(origin, "SAO BERNARDO") and _endpoint_has(destination, "CRAVINHOS"):
+            route = routes.get("sao-bernardo-cravinhos")
+            return {"status": "RECOGNIZED" if route else "GEOMETRY_PENDING", "route": route,
+                    "method": "provider_endpoints",
+                    "reason": "sao_bernardo_to_cravinhos" if route else "new_route_not_registered"}
         if _endpoint_has(origin, "CONTAGEM") and _endpoint_has(destination, "SAO BERNARDO"):
             return {"status": "GEOMETRY_PENDING", "route": None, "method": "provider_endpoints",
                     "reason": "reverse_direction_inactive"}
