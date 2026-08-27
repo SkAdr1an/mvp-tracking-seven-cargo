@@ -13,6 +13,7 @@ const app = readFileSync(new URL('./App.tsx', import.meta.url), 'utf8')
 const styles = readFileSync(new URL('./styles.css', import.meta.url), 'utf8')
 const appBoundary = readFileSync(new URL('./components/ContentErrorBoundary.tsx', import.meta.url), 'utf8')
 const driverMap = readFileSync(new URL('./components/DriverMap.tsx', import.meta.url), 'utf8')
+const login = readFileSync(new URL('./components/login/login.css', import.meta.url), 'utf8')
 
 test('mobile layout covers the supported handset and tablet widths', () => {
   assert.match(responsive, /max-width:\s*900px/)
@@ -36,6 +37,30 @@ test('mobile navigation and map use compact accessible controls', () => {
   assert.match(shell, /max-width:\s*900px/)
   assert.match(map, /map-filters-toggle/)
   assert.match(map, /min-height:\s*44px/)
+  assert.match(driverMap, /map-filters-backdrop/)
+  assert.match(driverMap, /map-filters__mobile-head/)
+  assert.match(driverMap, /map-filters__done/)
+  assert.match(driverMap, /activeFilterCount/)
+  assert.match(map, /grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/)
+  assert.match(map, /safe-area-inset-bottom/)
+  assert.match(driverMap, /operational-map--cockpit/)
+  assert.match(map, /\.operational-map--cockpit \.map-filters-toggle/)
+  assert.match(map, /\.operational-map--cockpit \.map-filters[^}]*display:flex/)
+  assert.match(map, /overflow-x:hidden/)
+  assert.match(map, /scrollbar-width:none/)
+  assert.match(map, /top:104px/)
+  assert.match(map, /flex-direction:column/)
+  assert.match(map, /left:10px;width:44px/)
+  assert.match(map, /\.operational-map\.operational-map--cockpit \.map-filters \.map-filters__mobile-head/)
+})
+
+test('mobile login separates the cinematic hero from a touch-friendly form', () => {
+  assert.match(login, /grid-template-rows:clamp\(270px,42svh,390px\) auto/)
+  assert.match(login, /safe-area-inset-top/)
+  assert.match(login, /safe-area-inset-bottom/)
+  assert.match(login, /\.login-panel\{width:min\(430px,100%\);margin-top:-22px/)
+  assert.match(login, /\.login-field input\{height:54px;font-size:16px\}/)
+  assert.match(login, /orientation:landscape/)
 })
 
 test('operational actions use the controlled confirmation dialog', () => {
@@ -80,16 +105,17 @@ test('central content failure preserves navigation and offers recovery', () => {
 
 test('map renders neutral distribution centers and independently controlled radii', () => {
   assert.match(driverMap, /OperationalSite/)
-  assert.match(driverMap, /\['sites','CDs'\]/)
-  assert.match(driverMap, /\['siteRadii','Raios dos CDs'\]/)
+  assert.match(driverMap, /aria-expanded=\{sitesMenuOpen\}/)
+  assert.match(driverMap, /<span>CDs<\/span><\/button>/)
+  assert.match(driverMap, /\['siteRadii','Raios dos CDs',CircleDashed\]/)
   assert.match(driverMap, /site-radius--entry/)
   assert.match(driverMap, /site-radius--exit/)
   assert.match(driverMap, /site-radius--approach/)
 })
 
 test('main map presents physical points only as reusable CDs',()=>{
-  assert.match(driverMap,/icon=\{mapIcon\('site','CD'\)\}/)
-  assert.match(driverMap,/CDs · entrada 500 m/)
+  assert.match(driverMap,/icon=\{siteIcon\(role\)\}/)
+  assert.match(driverMap,/Raios 500 \/ 650 \/ 1\.000 m/)
   assert.doesNotMatch(driverMap,/mapIcon\('origin','O'\)|mapIcon\('destination','D'\)/)
   assert.doesNotMatch(driverMap,/<strong>Origem<\/strong>|<strong>Destino<\/strong>/)
 })
