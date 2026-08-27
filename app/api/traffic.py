@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from app.services.traffic_monitoring import ROUTE_GEOMETRIES, traffic_monitoring_service, traffic_repository
 from app.services.route_deviation import route_deviation_service
+from app.services.route_alternatives import route_alternative_service
 from app.core.security import Permission, Principal, require_permission
 from app.core.config import get_settings
 from app.services.audit import AuditAction, AuditService
@@ -69,8 +70,17 @@ async def incidents(route_id: str|None=None,bbox: str|None=None,include_inactive
         if len(points) > 1800:
             step = (len(points) + 1799) // 1800
             points = points[::step] + ([points[-1]] if points[-1] not in points[::step] else [])
+        alternative_geometries=[]
+        for alternative in route_alternative_service(traffic_repository.operations).geometries(route["id"]):
+            if not alternative["alternative"]:continue
+            alternative_points=alternative["geometry"]
+            if len(alternative_points)>1800:
+                step=(len(alternative_points)+1799)//1800
+                alternative_points=alternative_points[::step]+([alternative_points[-1]] if alternative_points[-1] not in alternative_points[::step] else [])
+            alternative_geometries.append({"id":alternative["id"],"name":alternative["name"],"version":alternative["version"],"geometry":alternative_points})
         routes.append({
             **route,"geometry":points,
+            "alternative_geometries":alternative_geometries,
             "geometry_version": official.get("version") if official else None,
             "geometry_source": official.get("source") if official else None,
             "geometry_provider": official.get("provider") if official else None,

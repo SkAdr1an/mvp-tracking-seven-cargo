@@ -27,6 +27,14 @@ ROUTE_SPECS: tuple[dict[str, Any], ...] = (
         "match_terms": ["SÃO BERNARDO DO CAMPO", "CONTAGEM"],
     },
     {
+        "id": "sao-bernardo-cravinhos",
+        "name": "São Bernardo do Campo/SP → Cravinhos/SP",
+        "origin_site_id": "soc-sp-sao-bernardo-ceva",
+        "destination_site_id": "soc-sp-cravinhos",
+        "sla_minutes": None,
+        "match_terms": ["SÃO BERNARDO DO CAMPO", "CRAVINHOS"],
+    },
+    {
         "id": "contagem-guarulhos-cumbica",
         "name": "Contagem/MG → Guarulhos/SP",
         "origin_site_id": "cd-shopee-fbs-contagem",

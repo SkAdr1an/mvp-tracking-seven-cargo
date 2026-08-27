@@ -176,6 +176,7 @@ CREATE TABLE IF NOT EXISTS route_deviation_events (
  metadata_json TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS route_progress_snapshots (
  trip_key TEXT PRIMARY KEY, route_id TEXT NOT NULL, geometry_version TEXT NOT NULL,
+ route_variant TEXT, route_variant_name TEXT, alternative_route INTEGER NOT NULL DEFAULT 0,
  total_distance_km REAL NOT NULL, advanced_distance_km REAL NOT NULL,
  remaining_distance_km REAL NOT NULL, progress_percent REAL NOT NULL,
  return_distance_km REAL, route_state TEXT NOT NULL, confidence TEXT NOT NULL,
@@ -509,8 +510,8 @@ class OperationsRepository:
         value=dict(row);value["last_reliable"]=json.loads(value.pop("last_reliable_json") or "null");return value
 
     def save_route_progress(self, value: dict[str, Any]) -> dict[str, Any]:
-        columns=("trip_key","route_id","geometry_version","total_distance_km","advanced_distance_km","remaining_distance_km","progress_percent","return_distance_km","route_state","confidence","position_at","speed_kmh","speed_state","last_reliable_json","updated_at")
-        data={**value,"last_reliable_json":json.dumps(value.get("last_reliable"),ensure_ascii=False),"updated_at":utc_now()}
+        columns=("trip_key","route_id","geometry_version","route_variant","route_variant_name","alternative_route","total_distance_km","advanced_distance_km","remaining_distance_km","progress_percent","return_distance_km","route_state","confidence","position_at","speed_kmh","speed_state","last_reliable_json","updated_at")
+        data={**value,"alternative_route":int(bool(value.get("alternative_route",False))),"last_reliable_json":json.dumps(value.get("last_reliable"),ensure_ascii=False),"updated_at":utc_now()}
         placeholders=",".join("?" for _ in columns);updates=",".join(f"{column}=excluded.{column}" for column in columns if column!="trip_key")
         with self._lock,self.connect() as connection:connection.execute(f"INSERT INTO route_progress_snapshots({','.join(columns)}) VALUES({placeholders}) ON CONFLICT(trip_key) DO UPDATE SET {updates}",tuple(data.get(column) for column in columns))
         return self.route_progress(value["trip_key"]) or value

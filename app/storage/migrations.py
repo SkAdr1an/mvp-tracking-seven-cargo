@@ -13,7 +13,7 @@ from app.services.operational_sites import AUTHORIZED_SITE_ALIASES, SITE_SCHEMA
 from app.services.trip_operations import BETIM_JABOATAO_ROUTE, SAO_BERNARDO_CONTAGEM_ROUTE
 
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIRECTORY = PROJECT_ROOT / "migrations"
 REQUIRED_TABLES = frozenset({
@@ -37,6 +37,8 @@ REQUIRED_TABLES = frozenset({
     "stop_evidence_events",
     "operational_observations",
     "audit_events",
+    "route_alternatives",
+    "route_alternative_selections",
 })
 REQUIRED_INDEXES = frozenset({
     "idx_operational_exceptions_status",
@@ -53,6 +55,8 @@ REQUIRED_INDEXES = frozenset({
     "idx_audit_events_resource",
     "idx_operational_trips_state_archived",
     "idx_operational_trips_archived_at",
+    "idx_route_alternatives_route_active",
+    "idx_route_alternative_selections_route",
 })
 
 
@@ -156,6 +160,9 @@ def _migration_script(connection: sqlite3.Connection) -> str:
     scripts.append(
         (MIGRATIONS_DIRECTORY / "013_central_audit_log.sql").read_text(encoding="utf-8")
     )
+    scripts.append(
+        (MIGRATIONS_DIRECTORY / "015_route_alternatives.sql").read_text(encoding="utf-8")
+    )
     alterations: list[str] = []
     expected_columns = {
         "driver_profiles": {
@@ -188,6 +195,11 @@ def _migration_script(connection: sqlite3.Connection) -> str:
             "provider": "ALTER TABLE route_geometry_versions ADD COLUMN provider TEXT",
             "distance_m": "ALTER TABLE route_geometry_versions ADD COLUMN distance_m REAL",
             "duration_seconds": "ALTER TABLE route_geometry_versions ADD COLUMN duration_seconds REAL",
+        },
+        "route_progress_snapshots": {
+            "route_variant": "ALTER TABLE route_progress_snapshots ADD COLUMN route_variant TEXT",
+            "route_variant_name": "ALTER TABLE route_progress_snapshots ADD COLUMN route_variant_name TEXT",
+            "alternative_route": "ALTER TABLE route_progress_snapshots ADD COLUMN alternative_route INTEGER NOT NULL DEFAULT 0",
         },
         "operational_trips": {
             "loaded_at": "ALTER TABLE operational_trips ADD COLUMN loaded_at TEXT",
@@ -344,7 +356,8 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     monitoring = {
         "dashboard:read", "trips:read", "drivers:read", "incidents:read", "stops:read",
         "observations:create", "observations:correct-own", "stops:justify",
-        "incidents:create", "audit:read-operational",
+        "incidents:create", "audit:read-operational", "trips:status-correct",
+        "reports:generate", "public-links:manage",
     }
     for code, display_name in role_names.items():
         scripts.append(
