@@ -1,21 +1,31 @@
-import { Bell, Menu, RefreshCw } from 'lucide-react'
+import { Bell, LogOut, Menu, RefreshCw } from 'lucide-react'
 import type { Page } from '../types'
 
 const titles: Record<Page, [string, string]> = {
+  'driver-history': ['Histórico de viagem', 'Viagens consolidadas e desempenho operacional'],
+  'pending-evaluations': ['Avaliações pendentes', 'Análise pós-viagem com prazo operacional'],
   overview: ['Visão geral', 'Acompanhe sua operação em tempo real'],
   drivers: ['Motoristas', 'Localização e telemetria da equipe'],
+  'driver-master': ['Base de Motoristas', 'Cadastro central de motoristas da operação'],
+  'weekly-programming': ['Programação Semanal', 'Planejamento e prioridades da operação CEVA'],
   routes: ['Planejamento de rota', 'Previsão de distância, trânsito e chegada'],
   trafegus: ['Consulta Trafegus', 'Veículo, posição, eventos e viagem'],
   integrations: ['Integrações', 'Saúde dos serviços conectados'],
   angellira: ['Base AngelLira', 'Referências homologadas e filas de revisão'],
+  users: ['Usuários', 'Contas, perfis e acesso ao painel'],
+  audit: ['Auditoria', 'Rastreabilidade administrativa e operacional'],
 }
 
-export function Header({ page, connection, menuOpen, attentionCount, criticalCount, onMenu, onReconnect }: {
+export function Header({ page, connection, apiMode=false, menuOpen, attentionCount, criticalCount, username, role, onLogout, onMenu, onReconnect }: {
   page: Page
   connection: 'connecting' | 'connected' | 'disconnected'
+  apiMode?: boolean
   menuOpen: boolean
   attentionCount: number
   criticalCount: number
+  username: string
+  role: string
+  onLogout: () => Promise<void>
   onMenu: () => void
   onReconnect: () => void
 }) {
@@ -31,11 +41,12 @@ export function Header({ page, connection, menuOpen, attentionCount, criticalCou
         </div>
         <button className={`connection connection--${connection}`} onClick={connection === 'disconnected' ? onReconnect : undefined}>
           <span className="connection__dot" />
-          {connection === 'connected' ? 'Tempo real' : connection === 'connecting' ? 'Conectando' : 'Reconectar'}
+          {connection === 'connected' ? (apiMode?'Conectado':'Tempo real') : connection === 'connecting' ? 'Conectando' : (apiMode?'API indisponível':'Reconectar')}
           {connection === 'disconnected' && <RefreshCw size={14} />}
         </button>
         <button className="icon-button" aria-label="Notificações"><Bell size={20} /><span className="notification-dot" /></button>
-        <div className="avatar">OP</div>
+        <div className="topbar__identity"><span>{username}</span><small>{role}</small></div>
+        <button className="icon-button" onClick={() => void onLogout()} aria-label="Sair"><LogOut size={20}/></button>
       </div>
     </header>
   )

@@ -1,17 +1,22 @@
 from __future__ import annotations
 
-import hmac
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from app.core.config import get_settings
 from app.core.security import (
     PANEL_SESSION_COOKIE,
+    Principal,
+    configured_user,
     create_panel_session,
+    persistent_users_configured,
+    revoke_panel_session,
     require_panel_session,
+    verify_password,
 )
+from app.services.audit import AuditAction, AuditService
 
 
 router = APIRouter(prefix="/api/auth", tags=["panel-authentication"])
@@ -25,23 +30,35 @@ class LoginRequest(BaseModel):
 class SessionResponse(BaseModel):
     authenticated: bool = True
     username: str
+    user_id: str | None = None
+    display_name: str
+    role: str
+    permissions: list[str]
     expires_at: datetime | None = None
 
 
 @router.post("/session", response_model=SessionResponse)
 async def login(payload: LoginRequest, response: Response) -> SessionResponse:
     settings = get_settings()
+    audit = AuditService(settings.operations_database_path)
     if (
-        not settings.panel_admin_username
-        or not settings.panel_admin_password
+        (not persistent_users_configured() and not settings.panel_users_file
+         and (not settings.panel_admin_username or not settings.panel_admin_password_hash))
         or len(settings.panel_session_secret) < 32
     ):
         raise HTTPException(status_code=503, detail="Panel authentication is not configured")
-    valid_user = hmac.compare_digest(payload.username, settings.panel_admin_username)
-    valid_password = hmac.compare_digest(payload.password, settings.panel_admin_password)
+    configured = configured_user(payload.username)
+    admin = configured[0] if configured else None
+    valid_user = admin is not None
+    valid_password = verify_password(payload.password, configured[1] if configured else settings.panel_admin_password_hash)
     if not valid_user or not valid_password:
+        audit.record_login_failure(payload.username)
         raise HTTPException(status_code=401, detail="Invalid username or password")
-    token, expires_at = create_panel_session(payload.username)
+    assert admin is not None
+    try:
+        token, expires_at = create_panel_session(admin)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Authentication service unavailable") from exc
     response.set_cookie(
         PANEL_SESSION_COOKIE,
         token,
@@ -51,25 +68,52 @@ async def login(payload: LoginRequest, response: Response) -> SessionResponse:
         samesite="strict",
         path="/",
     )
+    audit.record(admin, AuditAction.AUTH_LOGIN_SUCCESS, "authentication",
+                 resource_id=admin.user_id, metadata={"success": True})
     return SessionResponse(
         username=payload.username,
+        user_id=admin.user_id,
+        display_name=admin.display_name or admin.username,
+        role=admin.role.value,
+        permissions=sorted(value.value for value in (admin.permissions or frozenset())),
         expires_at=datetime.fromtimestamp(expires_at, timezone.utc),
     )
 
 
 @router.get("/session", response_model=SessionResponse)
-async def session(username: str = Depends(require_panel_session)) -> SessionResponse:
-    return SessionResponse(username=username)
+async def session(principal: Principal = Depends(require_panel_session)) -> SessionResponse:
+    return _session_response(principal)
 
 
 @router.get("/me", response_model=SessionResponse)
-async def authenticated_user(username: str = Depends(require_panel_session)) -> SessionResponse:
+async def authenticated_user(principal: Principal = Depends(require_panel_session)) -> SessionResponse:
     """Revalida a sessão HttpOnly antes de restaurar o estado autenticado."""
-    return SessionResponse(username=username)
+    return _session_response(principal)
+
+
+def _session_response(principal: Principal) -> SessionResponse:
+    permissions = principal.permissions or frozenset()
+    return SessionResponse(
+        username=principal.username, user_id=principal.user_id,
+        display_name=principal.display_name or principal.username,
+        role=principal.role.value,
+        permissions=sorted(value.value for value in permissions),
+    )
 
 
 @router.delete("/session", status_code=204)
-async def logout(response: Response) -> Response:
+async def logout(
+    response: Response,
+    principal: Principal = Depends(require_panel_session),
+    session_token: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
+) -> Response:
+    try:
+        revoke_panel_session(session_token)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Authentication service unavailable") from exc
     response.delete_cookie(PANEL_SESSION_COOKIE, path="/")
+    AuditService(get_settings().operations_database_path).record(
+        principal, AuditAction.AUTH_LOGOUT, "authentication", resource_id=principal.user_id
+    )
     response.status_code = 204
     return response

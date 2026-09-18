@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
+import os
 import re
 import time
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from pathlib import Path
 
 from app.core.config import get_settings
 from app.integrations.tomtom import AuthError, RateLimitError, TomTomClient, UnavailableError, UpstreamError
@@ -27,6 +30,11 @@ _TRIP_ID_KEYS = ("viagemId", "id_viagem", "viagem_id", "codigo_viagem", "codigoV
 _SLA_KEYS = (
     "viag_previsao_fim", "previsao_fim_recalculada", "previsao_chegada", "previsao_fim", "data_previsao_fim", "data_fim_prevista",
     "data_prevista_chegada", "sla", "sla_chegada", "data_entrega_prevista",
+)
+_SCHEDULED_START_KEYS = (
+    "viag_previsao_inicio", "previsao_inicio_recalculada", "previsao_inicio",
+    "data_previsao_inicio", "data_inicio_prevista", "data_prevista_saida",
+    "inicio_previsto", "saida_prevista",
 )
 
 
@@ -72,14 +80,60 @@ class FleetTrackingService:
                 "request_count": self.last_trafegus_request_count,
                 "interval_seconds": get_settings().fleet_collector_interval_seconds}
 
+    @staticmethod
+    def _read_shared_snapshot(path: Path) -> dict[str, Any] | None:
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(value, dict) or not isinstance(value.get("trips"), list):
+                return None
+            value["cache"] = {"hit": True, "shared": True}
+            return value
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return None
+
+    @staticmethod
+    def _write_shared_snapshot(path: Path, snapshot: dict[str, Any]) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        try:
+            temporary.write_text(
+                json.dumps(snapshot, ensure_ascii=False, separators=(",", ":")),
+                encoding="utf-8",
+            )
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, path)
+        finally:
+            try:
+                temporary.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    @staticmethod
+    def _shared_snapshot_path() -> Path:
+        return get_settings().operations_database_path.parent / "fleet-snapshot.json"
+
     async def get_snapshot(self, force: bool = False) -> dict[str, Any]:
+        settings = get_settings()
+        if not settings.fleet_collector_enabled:
+            shared = await asyncio.to_thread(
+                self._read_shared_snapshot, self._shared_snapshot_path()
+            )
+            if shared is not None:
+                self._snapshot = deepcopy(shared)
+                self._snapshot_at = time.monotonic()
+                return shared
         if not force and self._snapshot and time.monotonic() - self._snapshot_at < self.cache_ttl_seconds:
             result = deepcopy(self._snapshot)
             result["cache"] = {"hit": True, "age_seconds": round(time.monotonic() - self._snapshot_at, 1)}
             return result
         async with self._lock:
             if not force and self._snapshot and time.monotonic() - self._snapshot_at < self.cache_ttl_seconds:
-                return await self.get_snapshot()
+                result = deepcopy(self._snapshot)
+                result["cache"] = {
+                    "hit": True,
+                    "age_seconds": round(time.monotonic() - self._snapshot_at, 1),
+                }
+                return result
             try:
                 raw = await TrafegusClient().active_trips_with_details()
                 telemetry=raw.get("_telemetry") or {}
@@ -87,7 +141,9 @@ class FleetTrackingService:
                 self.last_trafegus_request_count=telemetry.get("request_count")
                 self.last_trafegus_success_at = datetime.now(timezone.utc).isoformat()
                 self.last_trafegus_error = None
-                trips = self._normalize_trips(raw)
+                # Normalization performs SQLite work and can trigger automatic
+                # Chromium report rendering on a trip state transition.
+                trips = await asyncio.to_thread(self._normalize_trips, raw)
                 operational_site_service.recognize_trips(trips)
                 await self._enrich_trips(trips)
                 snapshot = self._build_snapshot(trips)
@@ -97,6 +153,9 @@ class FleetTrackingService:
                 )
                 self._snapshot = deepcopy(snapshot)
                 self._snapshot_at = time.monotonic()
+                await asyncio.to_thread(
+                    self._write_shared_snapshot, self._shared_snapshot_path(), snapshot
+                )
                 snapshot["cache"] = {"hit": False, "age_seconds": 0}
                 return snapshot
             except TrafegusError as exc:
@@ -143,8 +202,19 @@ class FleetTrackingService:
                 if speed_kmh is None:
                     speed_kmh = _speed(record)
                 trip_id = _first_value(record, _TRIP_ID_KEYS) or _first_value(metadata, _TRIP_ID_KEYS)
+                existing_trip = trip_operations_service.repository.trip(
+                    trip_operations_service.trip_key(
+                        plate, str(trip_id) if trip_id not in (None, "") else None
+                    )
+                )
+                if existing_trip and (
+                    existing_trip.get("state") in {"FINALIZADA_NO_SISTEMA", "RETORNO_CONCLUIDO", "CANCELADA"}
+                    or existing_trip.get("archived_at")
+                ):
+                    continue
                 destination = _destination(metadata)
                 sla = _first_datetime(metadata, _SLA_KEYS)
+                scheduled_start = _first_datetime(metadata, _SCHEDULED_START_KEYS)
                 route_description = _route_description(metadata)
                 driver_status = trip_operations_service.reconcile_driver(
                     plate=plate,
@@ -152,6 +222,12 @@ class FleetTrackingService:
                     trip_candidates=_trip_driver_candidates(position, metadata),
                     vehicle_candidates=_vehicle_driver_candidates(vehicle_metadata),
                 )
+                if driver_status.get("current_driver"):
+                    from app.services.driver_history import DriverHistoryService
+                    DriverHistoryService(trip_operations_service.repository).sync_trip(
+                        trip_operations_service.trip_key(plate, str(trip_id) if trip_id not in (None, "") else None),
+                        source="trafegus:trip-discovery",
+                    )
                 driver = driver_status.get("current_driver") or _driver_name(position, metadata)
                 item = {
                     "trip_id": str(trip_id) if trip_id not in (None, "") else None,
@@ -190,6 +266,7 @@ class FleetTrackingService:
                         trip_operations_service.recognize_route(route_description)
                     )
                     if item["operational"]:
+                        self._sync_provider_plan(item["operational"]["trip_key"], scheduled_start, sla)
                         detail = trip_operations_service.detail(item["operational"]["trip_key"])
                         if detail:
                             item["operational"] = detail
@@ -241,6 +318,36 @@ class FleetTrackingService:
                 normalized.append(item)
         return _deduplicate(normalized)
 
+    @staticmethod
+    def _sync_provider_plan(trip_key: str, scheduled_start: datetime | None, sla: datetime | None) -> None:
+        if not scheduled_start and not sla:
+            return
+        repository = trip_operations_service.repository
+        current = repository.plan(trip_key) or {}
+        incoming_start = scheduled_start.isoformat() if scheduled_start else current.get("scheduled_start_at")
+        incoming_arrival = sla.isoformat() if sla else current.get("scheduled_arrival_at")
+        if current.get("source") not in {None, "TRAFEGUS"}:
+            if incoming_start and incoming_start != current.get("scheduled_start_at"):
+                repository.add_event(
+                    trip_key, "SCHEDULE_SOURCE_DIVERGENCE", datetime.now(timezone.utc).isoformat(),
+                    "trafegus", "Horário do Trafegus diverge da reprogramação manual",
+                    metadata={"trafegus_scheduled_start_at": incoming_start,
+                              "manual_scheduled_start_at": current.get("scheduled_start_at")},
+                    idempotency_key=f"schedule-divergence:{trip_key}:{incoming_start}",
+                )
+            return
+        values = {
+            "scheduled_start_at": incoming_start,
+            "scheduled_arrival_at": incoming_arrival,
+            "customer_commitment_at": sla.isoformat() if sla else current.get("customer_commitment_at"),
+            "planned_loading_minutes": current.get("planned_loading_minutes") or 0,
+            "planned_stops_minutes": current.get("planned_stops_minutes") or 0,
+            "operational_buffer_minutes": current.get("operational_buffer_minutes") or 0,
+            "source": "TRAFEGUS", "notes": "Sincronizado automaticamente do Trafegus",
+        }
+        if any(values.get(key) != current.get(key) for key in ("scheduled_start_at", "scheduled_arrival_at", "customer_commitment_at")):
+            repository.save_plan(trip_key, values, "system:trafegus")
+
     async def _enrich_trips(self, trips: list[dict[str, Any]]) -> None:
         semaphore = asyncio.Semaphore(3)
 
@@ -255,14 +362,18 @@ class FleetTrackingService:
                     "reason": "Viagem encerrada ou retorno aguardando decisão operacional",
                 }
                 return
-            if not trip.get("position") or not (trip.get("destination") or {}).get("position"):
+            if not trip.get("position"):
                 return
             if not get_settings().fleet_routing_enabled:
+                async with semaphore:
+                    await self._weather_from_persisted_route(trip)
                 trip["prediction"] = {
                     "status": "unavailable",
                     "reason": "Roteamento automático por viagem desativado para controle de consumo",
                 }
                 trip["api_status"]["tomtom"] = "automatic_routing_disabled"
+                return
+            if not (trip.get("destination") or {}).get("position"):
                 return
             async with semaphore:
                 await self._enrich_prediction(trip)
@@ -270,9 +381,16 @@ class FleetTrackingService:
         await asyncio.gather(*(enrich(trip) for trip in trips))
         from app.services.traffic_monitoring import traffic_repository
         from app.services.route_deviation import route_deviation_service
+        from app.services.operational_observations import OperationalObservationService
+        observation_service = OperationalObservationService(trip_operations_service.repository.database_path)
         all_incidents = traffic_repository.incidents()
         for trip in trips:
             operation = trip.get("operational") or {}
+            plan = operation.get("plan") or {}
+            planned_commitment = plan.get("customer_commitment_at") or plan.get("scheduled_arrival_at")
+            if planned_commitment:
+                trip["sla_at"] = planned_commitment
+                trip.setdefault("prediction", {})["sla_at"] = planned_commitment
             relevant = [
                 incident for incident in all_incidents
                 if any(
@@ -286,6 +404,51 @@ class FleetTrackingService:
                 if operation.get("trip_key") else None,
             )
             self._ensure_operational_classification(trip)
+            if operation.get("trip_key") and not operation.get("started_at"):
+                observations = observation_service.list_for_trip(operation["trip_key"])
+                critical = next((item for item in observations if item.get("status") == "ACTIVE"
+                                 and (item.get("metadata") or {}).get("critical_impact")), None)
+                classification = "CRITICA" if critical else (
+                    "NORMAL" if _parse_datetime(plan.get("scheduled_start_at"))
+                    and _parse_datetime(plan.get("scheduled_start_at")) > datetime.now(timezone.utc)
+                    else "ATENCAO"
+                )
+                trip["prediction"]["classification"] = classification
+                trip["prediction"]["classification_source"] = "pre_departure_operational_state"
+                if trip.get("diagnostic"):
+                    trip["diagnostic"]["classification"] = classification
+                    trip["diagnostic"]["status_explanation"] = (
+                        f"Impacto operacional registrado: {critical['content']}"
+                        if critical else "Veículo ainda não teve saída confirmada; o relógio de trânsito não foi iniciado."
+                    )
+
+    async def _weather_from_persisted_route(self, trip: dict[str, Any]) -> None:
+        """Enrich weather without enabling per-trip external routing."""
+        from app.services.route_deviation import route_deviation_service
+
+        operation = trip.get("operational") or {}
+        route_id = operation.get("route_id")
+        persisted = route_deviation_service.geometry(str(route_id)) if route_id else None
+        points = (persisted or {}).get("geometry") or []
+        valid = [
+            {"latitude": float(point["latitude"]), "longitude": float(point["longitude"])}
+            for point in points
+            if isinstance(point, dict)
+            and isinstance(point.get("latitude"), (int, float))
+            and isinstance(point.get("longitude"), (int, float))
+        ]
+        if len(valid) < 3:
+            trip["api_status"]["openweather"] = "not_checked"
+            trip["api_status"]["openweather_reason"] = "route_geometry_unavailable"
+            return
+        progress = trip.get("route_progress") or {}
+        percent = progress.get("progress_percent")
+        if isinstance(percent, (int, float)) and 0 <= percent <= 100:
+            start = min(round((len(valid) - 1) * percent / 100), len(valid) - 3)
+            valid = valid[max(start, 0):]
+        remaining_km = progress.get("remaining_distance_km")
+        remaining_minutes = max(float(remaining_km), 0) / 55 * 60 if isinstance(remaining_km, (int, float)) else 0
+        await self._weather_along_route(trip, valid, remaining_minutes)
 
     @staticmethod
     def _ensure_operational_classification(trip: dict[str, Any]) -> None:

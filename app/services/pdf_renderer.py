@@ -46,6 +46,7 @@ def render_html_to_pdf(
             [
                 str(browser),
                 "--headless=new",
+                "--no-sandbox",
                 "--disable-gpu",
                 "--no-pdf-header-footer",
                 "--run-all-compositor-stages-before-draw",
@@ -57,6 +58,7 @@ def render_html_to_pdf(
             text=True,
             timeout=60,
             check=False,
+            creationflags=getattr(subprocess, "BELOW_NORMAL_PRIORITY_CLASS", 0),
         )
     if completed.returncode != 0 or not destination.is_file() or destination.stat().st_size == 0:
         detail = (completed.stderr or completed.stdout or "falha desconhecida").strip()

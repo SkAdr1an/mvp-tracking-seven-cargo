@@ -31,26 +31,7 @@ def utc_now() -> str:
 class PublicTripRepository:
     def __init__(self, operations: OperationsRepository) -> None:
         self.operations = operations
-        self.initialize()
-
-    def initialize(self) -> None:
-        with self.operations.connect() as connection:
-            connection.executescript(PUBLIC_LINK_SCHEMA)
-            trip_columns = {row["name"] for row in connection.execute("PRAGMA table_info(operational_trips)")}
-            if "loaded_at" not in trip_columns:
-                connection.execute("ALTER TABLE operational_trips ADD COLUMN loaded_at TEXT")
-            if "trailer_plate" not in trip_columns:
-                connection.execute("ALTER TABLE operational_trips ADD COLUMN trailer_plate TEXT")
-            traffic_table = connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='traffic_incidents'"
-            ).fetchone()
-            traffic_columns = (
-                {row["name"] for row in connection.execute("PRAGMA table_info(traffic_incidents)")}
-                if traffic_table else set()
-            )
-        self._public_incidents_available = {
-            "publicly_visible", "public_title", "public_description"
-        }.issubset(traffic_columns)
+        self._public_incidents_available = True
 
     def mobile_schema_available(self) -> bool:
         with self.operations.connect() as connection:

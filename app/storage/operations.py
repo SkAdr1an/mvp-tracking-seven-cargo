@@ -3,11 +3,14 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+import sys
 import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
+
+from app.storage.sqlite_runtime import connect_existing_database
 
 
 SCHEMA = """
@@ -28,7 +31,7 @@ CREATE TABLE IF NOT EXISTS route_configs (
     destination_exit_radius_m REAL NOT NULL DEFAULT 650,
     origin_dwell_minutes REAL NOT NULL DEFAULT 10,
     destination_dwell_minutes REAL NOT NULL DEFAULT 10,
-    destination_finish_minutes REAL NOT NULL DEFAULT 30,
+    destination_finish_minutes REAL NOT NULL DEFAULT 15,
     stop_speed_max_kmh REAL NOT NULL DEFAULT 5,
     consecutive_readings INTEGER NOT NULL DEFAULT 2,
     sla_minutes INTEGER,
@@ -71,6 +74,12 @@ CREATE TABLE IF NOT EXISTS operational_trips (
     arrived_destination_at TEXT,
     finished_at TEXT,
     finish_type TEXT,
+    cancelled_at TEXT,
+    cancelled_by_user_id TEXT REFERENCES users(id),
+    cancelled_reason TEXT,
+    archived_at TEXT,
+    archived_by_user_id TEXT REFERENCES users(id),
+    archive_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -167,6 +176,7 @@ CREATE TABLE IF NOT EXISTS route_deviation_events (
  metadata_json TEXT NOT NULL DEFAULT '{}');
 CREATE TABLE IF NOT EXISTS route_progress_snapshots (
  trip_key TEXT PRIMARY KEY, route_id TEXT NOT NULL, geometry_version TEXT NOT NULL,
+ route_variant TEXT, route_variant_name TEXT, alternative_route INTEGER NOT NULL DEFAULT 0,
  total_distance_km REAL NOT NULL, advanced_distance_km REAL NOT NULL,
  remaining_distance_km REAL NOT NULL, progress_percent REAL NOT NULL,
  return_distance_km REAL, route_state TEXT NOT NULL, confidence TEXT NOT NULL,
@@ -215,6 +225,60 @@ CREATE TABLE IF NOT EXISTS eta_history (
  evidence_json TEXT NOT NULL DEFAULT '{}', recorded_at TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS idx_eta_history_trip_time
 ON eta_history(trip_key, recorded_at);
+CREATE TABLE IF NOT EXISTS driver_profiles (
+ id TEXT PRIMARY KEY, cpf TEXT UNIQUE, name TEXT NOT NULL, phone TEXT,
+ emergency_phone TEXT, client_operation TEXT, routes_json TEXT NOT NULL DEFAULT '[]',
+ vehicle_profile TEXT, master_status TEXT, registration_date TEXT,
+ identity_status TEXT NOT NULL DEFAULT 'PENDING',
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_profiles_name ON driver_profiles(name);
+CREATE TABLE IF NOT EXISTS driver_trip_history (
+ trip_key TEXT PRIMARY KEY REFERENCES operational_trips(trip_key),
+ driver_id TEXT NOT NULL REFERENCES driver_profiles(id), provider_trip_id TEXT,
+ plate TEXT NOT NULL, trailer_plate TEXT, route_id TEXT, route_name TEXT,
+ origin_name TEXT, destination_name TEXT, customer TEXT, evaluation_responsible TEXT,
+ status TEXT NOT NULL, source_created_at TEXT, loaded_at TEXT, started_at TEXT,
+ scheduled_arrival_at TEXT, eta_at TEXT, arrived_destination_at TEXT, finished_at TEXT,
+ package_count INTEGER, responsible TEXT, driver_source TEXT,
+ source TEXT NOT NULL, source_updated_at TEXT NOT NULL,
+ automatic_punctuality TEXT NOT NULL DEFAULT 'UNAVAILABLE',
+ automatic_delay_minutes REAL, considered_punctuality TEXT,
+ closed INTEGER NOT NULL DEFAULT 0, consolidated_at TEXT,
+ consolidation_version INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_history_driver_date ON driver_trip_history(driver_id, finished_at DESC);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_history_status ON driver_trip_history(status, finished_at);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_history_route ON driver_trip_history(route_id);
+CREATE TABLE IF NOT EXISTS driver_evaluations (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL UNIQUE REFERENCES driver_trip_history(trip_key),
+ driver_id TEXT NOT NULL REFERENCES driver_profiles(id), communication TEXT NOT NULL,
+ procedures TEXT NOT NULL, tracking_collaboration TEXT NOT NULL, time_mark TEXT NOT NULL,
+ professional_behavior TEXT NOT NULL, recommendation TEXT NOT NULL,
+ internal_note TEXT, justification TEXT, responsible TEXT NOT NULL,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_evaluations_driver ON driver_evaluations(driver_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_evaluation_history (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, evaluation_id INTEGER NOT NULL REFERENCES driver_evaluations(id),
+ changed_by TEXT NOT NULL, changed_at TEXT NOT NULL, previous_json TEXT, current_json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS punctuality_adjustments (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),
+ original_value TEXT NOT NULL, considered_value TEXT NOT NULL, category TEXT NOT NULL,
+ reason TEXT NOT NULL, justification TEXT NOT NULL, evidence TEXT, responsible TEXT NOT NULL,
+ created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_punctuality_adjustments_trip ON punctuality_adjustments(trip_key, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_internal_notes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, driver_id TEXT NOT NULL REFERENCES driver_profiles(id),
+ note TEXT NOT NULL, responsible TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_notes_driver ON driver_internal_notes(driver_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_identity_links (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),
+ previous_driver_id TEXT, new_driver_id TEXT NOT NULL REFERENCES driver_profiles(id),
+ source TEXT NOT NULL, justification TEXT NOT NULL, responsible TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_identity_links_trip ON driver_identity_links(trip_key, created_at DESC);
+CREATE TABLE IF NOT EXISTS driver_trip_history_changes (
+ id INTEGER PRIMARY KEY AUTOINCREMENT, trip_key TEXT NOT NULL REFERENCES driver_trip_history(trip_key),
+ field_name TEXT NOT NULL, previous_value TEXT, new_value TEXT, responsible TEXT NOT NULL,
+ justification TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS idx_driver_trip_changes_trip ON driver_trip_history_changes(trip_key, created_at DESC);
 """
 
 
@@ -227,16 +291,17 @@ class OperationsRepository:
         path = Path(database_path)
         if str(database_path) != ":memory:" and not path.is_absolute():
             raise ValueError("SQLite database path must be absolute")
+        operational_path = (Path(__file__).resolve().parents[2] / "data" / "operations.db").resolve()
+        if "pytest" in sys.modules and str(database_path) != ":memory:" and path.resolve() == operational_path:
+            raise RuntimeError("Tests cannot use the operational database")
         self.database_path = ":memory:" if str(database_path) == ":memory:" else str(path.resolve())
         self._lock = threading.RLock()
-        self.initialize()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        path = Path(self.database_path)
-        if self.database_path != ":memory:":
-            path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database_path, timeout=10, check_same_thread=False)
+        connection = connect_existing_database(
+            self.database_path, timeout=10, check_same_thread=False
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
@@ -248,49 +313,6 @@ class OperationsRepository:
             raise
         finally:
             connection.close()
-
-    def initialize(self) -> None:
-        with self._lock, self.connect() as connection:
-            connection.executescript(SCHEMA)
-            columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(operational_diagnostics)").fetchall()
-            }
-            if "commitment_delta_minutes" not in columns:
-                connection.execute(
-                    "ALTER TABLE operational_diagnostics ADD COLUMN commitment_delta_minutes REAL"
-                )
-            route_columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(route_configs)").fetchall()
-            }
-            if "operational_duration_minutes" not in route_columns:
-                connection.execute("ALTER TABLE route_configs ADD COLUMN operational_duration_minutes INTEGER")
-            if "is_express" not in route_columns:
-                connection.execute("ALTER TABLE route_configs ADD COLUMN is_express INTEGER NOT NULL DEFAULT 0")
-            if "origin_site_id" not in route_columns:
-                connection.execute(
-                    "ALTER TABLE route_configs ADD COLUMN origin_site_id TEXT"
-                )
-            if "destination_site_id" not in route_columns:
-                connection.execute(
-                    "ALTER TABLE route_configs ADD COLUMN destination_site_id TEXT"
-                )
-            usage_columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(routing_api_usage)")
-            }
-            if "provider" not in usage_columns:
-                connection.execute(
-                    "ALTER TABLE routing_api_usage ADD COLUMN provider TEXT NOT NULL DEFAULT 'tomtom'"
-                )
-            geometry_columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(route_geometry_versions)")
-            }
-            if "provider" not in geometry_columns:
-                connection.execute("ALTER TABLE route_geometry_versions ADD COLUMN provider TEXT")
-            if "distance_m" not in geometry_columns:
-                connection.execute("ALTER TABLE route_geometry_versions ADD COLUMN distance_m REAL")
-            if "duration_seconds" not in geometry_columns:
-                connection.execute("ALTER TABLE route_geometry_versions ADD COLUMN duration_seconds REAL")
-            connection.execute("UPDATE route_configs SET origin_latitude=-19.9821111, origin_longitude=-44.2662371, destination_latitude=-8.207594, destination_longitude=-34.963157, destination_radius_m=1000, destination_exit_radius_m=1150, updated_at=? WHERE id='betim-jaboatao'", (utc_now(),))
 
     def upsert_route(self, route: dict[str, Any]) -> None:
         now = utc_now()
@@ -343,12 +365,17 @@ class OperationsRepository:
                    (trip_key, provider_trip_id, plate, route_id, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(trip_key) DO UPDATE SET
-                     provider_trip_id=COALESCE(excluded.provider_trip_id, provider_trip_id),
+                     provider_trip_id=CASE
+                       WHEN state='CANCELADA' OR archived_at IS NOT NULL THEN provider_trip_id
+                       ELSE COALESCE(excluded.provider_trip_id, provider_trip_id) END,
                      route_id=CASE
+                       WHEN state='CANCELADA' OR archived_at IS NOT NULL THEN route_id
                        WHEN route_id IS NULL OR route_id=excluded.route_id
                        THEN COALESCE(excluded.route_id,route_id)
                        ELSE route_id END,
-                     updated_at=excluded.updated_at""",
+                     updated_at=CASE
+                       WHEN state='CANCELADA' OR archived_at IS NOT NULL THEN updated_at
+                       ELSE excluded.updated_at END""",
                 (trip_key, provider_trip_id, plate, route_id, now, now),
             )
             row = connection.execute("SELECT * FROM operational_trips WHERE trip_key = ?", (trip_key,)).fetchone()
@@ -359,9 +386,12 @@ class OperationsRepository:
             row = connection.execute("SELECT * FROM operational_trips WHERE trip_key = ?", (trip_key,)).fetchone()
         return self._trip(row) if row else None
 
-    def trips(self) -> list[dict[str, Any]]:
+    def trips(self, *, include_archived: bool = False) -> list[dict[str, Any]]:
+        where = "" if include_archived else " WHERE archived_at IS NULL"
         with self.connect() as connection:
-            rows = connection.execute("SELECT * FROM operational_trips ORDER BY updated_at DESC").fetchall()
+            rows = connection.execute(
+                "SELECT * FROM operational_trips" + where + " ORDER BY updated_at DESC"
+            ).fetchall()
         return [self._trip(row) for row in rows]
 
     def trip_for_provider(self, provider_trip_id: str | None, plate: str) -> dict[str, Any] | None:
@@ -386,6 +416,8 @@ class OperationsRepository:
             "destination_candidate_count", "destination_exit_count", "origin_entered_at",
             "arrived_origin_at", "started_at", "destination_entered_at",
             "loaded_at", "trailer_plate", "arrived_destination_at", "finished_at", "finish_type",
+            "cancelled_at", "cancelled_by_user_id", "cancelled_reason",
+            "archived_at", "archived_by_user_id", "archive_reason",
         }
         clean = {key: value for key, value in fields.items() if key in allowed}
         clean["updated_at"] = utc_now()
@@ -453,7 +485,14 @@ class OperationsRepository:
 
     def position_history(self, trip_key: str, limit: int = 1500) -> list[dict[str, Any]]:
         with self.connect() as connection:
-            rows=connection.execute("SELECT latitude,longitude,speed_kmh,recorded_at,source FROM operational_positions WHERE trip_key=? AND accepted=1 ORDER BY recorded_at DESC LIMIT ?",(trip_key,limit)).fetchall()
+            rows=connection.execute(
+                """SELECT latitude,longitude,speed_kmh,recorded_at,source,
+                          origin_distance_m,destination_distance_m
+                   FROM operational_positions
+                   WHERE trip_key=? AND accepted=1
+                   ORDER BY recorded_at DESC LIMIT ?""",
+                (trip_key,limit),
+            ).fetchall()
         return [dict(row) for row in reversed(rows)]
 
     def raw_position_history(self, trip_key: str, limit: int = 2000) -> list[dict[str, Any]]:
@@ -473,8 +512,8 @@ class OperationsRepository:
         value=dict(row);value["last_reliable"]=json.loads(value.pop("last_reliable_json") or "null");return value
 
     def save_route_progress(self, value: dict[str, Any]) -> dict[str, Any]:
-        columns=("trip_key","route_id","geometry_version","total_distance_km","advanced_distance_km","remaining_distance_km","progress_percent","return_distance_km","route_state","confidence","position_at","speed_kmh","speed_state","last_reliable_json","updated_at")
-        data={**value,"last_reliable_json":json.dumps(value.get("last_reliable"),ensure_ascii=False),"updated_at":utc_now()}
+        columns=("trip_key","route_id","geometry_version","route_variant","route_variant_name","alternative_route","total_distance_km","advanced_distance_km","remaining_distance_km","progress_percent","return_distance_km","route_state","confidence","position_at","speed_kmh","speed_state","last_reliable_json","updated_at")
+        data={**value,"alternative_route":int(bool(value.get("alternative_route",False))),"last_reliable_json":json.dumps(value.get("last_reliable"),ensure_ascii=False),"updated_at":utc_now()}
         placeholders=",".join("?" for _ in columns);updates=",".join(f"{column}=excluded.{column}" for column in columns if column!="trip_key")
         with self._lock,self.connect() as connection:connection.execute(f"INSERT INTO route_progress_snapshots({','.join(columns)}) VALUES({placeholders}) ON CONFLICT(trip_key) DO UPDATE SET {updates}",tuple(data.get(column) for column in columns))
         return self.route_progress(value["trip_key"]) or value
@@ -675,7 +714,10 @@ class OperationsRepository:
 
     @staticmethod
     def _trip(row: sqlite3.Row) -> dict[str, Any]:
-        value = dict(row)
+        return OperationsRepository._trip_from_mapping(dict(row))
+
+    @staticmethod
+    def _trip_from_mapping(value: dict[str, Any]) -> dict[str, Any]:
         value["driver_divergence"] = bool(value["driver_divergence"])
         return value
 

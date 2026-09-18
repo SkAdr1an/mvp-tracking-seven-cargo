@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import sqlite3
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timedelta, timezone
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel, Field, field_validator
 
 from app.integrations.tomtom import AuthError, RateLimitError, TomTomClient, UnavailableError, UpstreamError
@@ -12,6 +15,9 @@ from app.integrations.weather import WeatherClient
 from app.integrations.driver_tracking import router as tracking_router
 from app.integrations.trafegus import TrafegusClient, TrafegusError
 from app.core.config import get_settings
+from app.core.middleware import ApplicationSecurityMiddleware
+from app.core.security import Permission, Principal, require_permission
+from app.services.audit import AuditAction, AuditService
 from app.services.operational_route import estimate_operational_time
 from app.services.route_profiles import ROUTE_PROFILES, get_route_profile
 from app.services.fleet_tracking import fleet_tracking_service
@@ -22,9 +28,15 @@ from app.api.angellira import router as angellira_router
 from app.api.public_trip import router as public_trip_router
 from app.api.auth import router as auth_router
 from app.api.operational_sites import router as operational_sites_router
+from app.api.users import router as users_router
+from app.api.audit import router as audit_router
+from app.api.driver_history import router as driver_history_router
+from app.api.weekly_programming import router as weekly_programming_router
+from app.api.audit import router as audit_router
 from app.services.route_deviation import route_deviation_service
 from app.services.traffic_monitoring import traffic_monitoring_service
 from app.services.routing_provider import RoutingProviderService, RoutingProvidersFailed
+from app.storage.migrations import DatabaseSchemaError, validate_database_schema
 
 
 logger = logging.getLogger(__name__)
@@ -94,13 +106,16 @@ async def _database_backup_collector() -> None:
 async def lifespan(_: FastAPI):
     global _collector_task, _traffic_collector_task, _route_geometry_task, _backup_task
     settings = get_settings()
+    validate_database_schema(settings.operations_database_path)
     settings.validate_public_trip_runtime()
+    settings.validate_security_runtime()
     if settings.development:
         logger.info(
             "Runtime storage configured database=%s",
             settings.operations_database_path,
         )
-    _route_geometry_task = asyncio.create_task(_route_geometry_bootstrap())
+    if settings.route_geometry_bootstrap_enabled:
+        _route_geometry_task = asyncio.create_task(_route_geometry_bootstrap())
     if settings.fleet_collector_enabled:
         _collector_task = asyncio.create_task(_fleet_collector())
     if settings.traffic_collector_enabled:
@@ -127,11 +142,28 @@ async def lifespan(_: FastAPI):
             await _backup_task
         _backup_task = None
 
-app = FastAPI(title="7Seven Cargo MVP Tracking", version="0.2.0", lifespan=lifespan)
+_settings = get_settings()
+app = FastAPI(
+    title="7Seven Cargo MVP Tracking",
+    version="0.2.0",
+    lifespan=lifespan,
+    docs_url="/docs" if _settings.expose_api_docs else None,
+    redoc_url="/redoc" if _settings.expose_api_docs else None,
+    openapi_url="/openapi.json" if _settings.expose_api_docs else None,
+    debug=False,
+)
+
+app.add_middleware(ApplicationSecurityMiddleware)
+_allowed_hosts = [value.strip() for value in _settings.allowed_hosts.split(",") if value.strip()]
+if _settings.development:
+    _allowed_hosts.append("testserver")
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+if _settings.force_https:
+    app.add_middleware(HTTPSRedirectMiddleware)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[origin.strip() for origin in get_settings().frontend_origins.split(",") if origin.strip()],
+    allow_origins=[origin.strip() for origin in _settings.frontend_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -146,6 +178,10 @@ app.include_router(angellira_router)
 app.include_router(public_trip_router)
 app.include_router(auth_router)
 app.include_router(operational_sites_router)
+app.include_router(users_router)
+app.include_router(audit_router)
+app.include_router(driver_history_router)
+app.include_router(weekly_programming_router)
 
 
 class RoutePreviewRequest(BaseModel):
@@ -232,12 +268,23 @@ class PlateConsultRequest(BaseModel):
     plate: str = Field(min_length=7, max_length=8)
 
 
-@app.get("/health")
-async def health_check() -> dict[str, str]:
+@app.get("/health/live", include_in_schema=False)
+async def health_live() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/fleet/active")
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    try:
+        await asyncio.to_thread(
+            validate_database_schema, get_settings().operations_database_path
+        )
+    except (DatabaseSchemaError, OSError, sqlite3.Error) as exc:
+        raise HTTPException(status_code=503, detail="Operational database unavailable") from exc
+    return {"status": "ok"}
+
+
+@app.get("/fleet/active", dependencies=[Depends(require_permission(Permission.INTEGRATIONS_INVOKE))])
 async def active_fleet(force: bool = Query(default=False)) -> dict[str, object]:
     """Frota ativa do Trafegus com previsão degradável por viagem."""
     try:
@@ -247,9 +294,17 @@ async def active_fleet(force: bool = Query(default=False)) -> dict[str, object]:
 
 
 @app.post("/trafegus/vehicles/consult")
-async def consult_vehicle(payload: PlateConsultRequest) -> dict[str, object]:
+async def consult_vehicle(
+    payload: PlateConsultRequest,
+    principal: Principal = Depends(require_permission(Permission.INTEGRATIONS_INVOKE)),
+) -> dict[str, object]:
     try:
         result = await TrafegusClient().consult_plate(payload.plate)
+        AuditService(get_settings().operations_database_path).record_optional(
+            principal, AuditAction.INTEGRATION_INVOKED, "integration",
+            metadata={"integration": "TRAFEGUS", "operation": "vehicle_consult",
+                      "vehicle": payload.plate, "success": True},
+        )
         return _sanitize_provider_data(result)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -273,7 +328,10 @@ def _sanitize_provider_data(value: object, key: str = "") -> object:
 
 
 @app.post("/routes/preview", response_model=RoutePreviewResponse)
-async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
+async def preview_route(
+    payload: RoutePreviewRequest,
+    principal: Principal = Depends(require_permission(Permission.INTEGRATIONS_INVOKE)),
+) -> RoutePreviewResponse:
     profile = get_route_profile(payload.route_profile)
     if payload.route_profile and profile is None:
         raise HTTPException(
@@ -451,7 +509,7 @@ async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
     else:
         status = "critical"
 
-    return RoutePreviewResponse(
+    response = RoutePreviewResponse(
         origin={"address": origin_address, "position": origin_position},
         destination={"address": destination_address, "position": destination_position},
         departure_at=payload.departure_at,
@@ -546,9 +604,16 @@ async def preview_route(payload: RoutePreviewRequest) -> RoutePreviewResponse:
             if profile else None
         ),
     )
+    AuditService(get_settings().operations_database_path).record_optional(
+        principal, AuditAction.INTEGRATION_INVOKED, "integration",
+        metadata={"integration": "ROUTING", "operation": "route_preview",
+                  "origin": payload.origin, "destination": payload.destination,
+                  "success": True},
+    )
+    return response
 
 
-@app.get("/integrations/status")
+@app.get("/integrations/status", dependencies=[Depends(require_permission(Permission.DASHBOARD_READ))])
 async def integrations_status() -> dict[str, object]:
     settings = get_settings()
     traffic_health = traffic_monitoring_service.repository.health()
@@ -558,6 +623,7 @@ async def integrations_status() -> dict[str, object]:
         "tomtom_routing": "operational" if settings.tomtom_api_key else "unavailable",
         "tomtom_traffic_incidents": (traffic_health.get("tomtom_traffic_incidents") or {}).get("status", "degraded").lower(),
         "tomtom_traffic_flow": (traffic_health.get("tomtom_traffic_flow") or {}).get("status", "degraded").lower(),
+        "azure_maps_traffic_incidents": (traffic_health.get("azure_maps_traffic_incidents") or {}).get("status", "not_configured" if not settings.azure_maps_subscription_key else "degraded").lower(),
         "openweather": "configured" if settings.openweather_api_key else "not_configured",
         "trafegus": trafegus_health["status"],
         "trafegus_detail": trafegus_health,

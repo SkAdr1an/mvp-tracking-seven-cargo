@@ -10,6 +10,7 @@ METHOD_VERSION = "dynamic-eta-v1"
 ACTIVE_STATES = {
     "EM_VIAGEM", "NO_DESTINO", "RETORNO_SEVEN_CONFIRMADO",
 }
+PRE_START_STATES = {"PROGRAMADA", "NA_ORIGEM", "EM_CARREGAMENTO", "REABERTA_MANUALMENTE"}
 
 
 class OperationalDiagnosticService:
@@ -27,13 +28,19 @@ class OperationalDiagnosticService:
         if not trip_key:
             return None
         candidate = operation.get("return_candidate") or {}
+        state = operation.get("state")
+        progress = trip.get("route_progress") or {}
+        in_transit_evidence = bool(operation.get("started_at")) or (
+            state in PRE_START_STATES
+            and (progress.get("progress_percent") or 0) > 0
+            and (operation.get("geofences") or {}).get("origin") == "outside"
+        )
         if (
-            operation.get("state") not in ACTIVE_STATES
+            (state not in ACTIVE_STATES and not in_transit_evidence)
             or candidate.get("state") in {"AGUARDANDO_CONFIRMACAO", "RETORNO_EXTERNO"}
         ):
             return None
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-        progress = trip.get("route_progress") or {}
         prediction = trip.get("prediction") or {}
         remaining_km = _number(progress.get("remaining_distance_km"))
         progress_percent = _number(progress.get("progress_percent"))

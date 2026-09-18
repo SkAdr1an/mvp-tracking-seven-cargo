@@ -21,6 +21,18 @@ test('configured URL may include viagem without duplicating the route', () => {
   assert.equal(result, `http://localhost:5173/viagem/${token}`)
 })
 
+test('accepts HTTP, HTTPS and trailing slash without duplicating protocol', () => {
+  assert.equal(managedPublicUrl(`http://backend/viagem/${token}`, 'http://localhost:5174/'), `http://localhost:5174/viagem/${token}`)
+  assert.equal(managedPublicUrl(`https://backend/viagem/${token}`, 'https://painel.sevencargo.com.br/'), `https://painel.sevencargo.com.br/viagem/${token}`)
+  assert.doesNotMatch(managedPublicUrl(`https://backend/viagem/${token}`, 'https://painel.sevencargo.com.br'), /https:\/\/http/)
+})
+
+test('rejects malformed bases and never derives the public origin from browser Host', () => {
+  assert.throws(() => managedPublicUrl(`https://backend/viagem/${token}`, 'https://http://190.2.184.66'), /inválida/)
+  assert.throws(() => managedPublicUrl(`https://backend/viagem/${token}`, 'painel.sevencargo.com.br'), /Invalid URL/)
+  assert.equal(managedPublicUrl(`https://painel.sevencargo.com.br/viagem/${token}`), `https://painel.sevencargo.com.br/viagem/${token}`)
+})
+
 test('WhatsApp message is correctly encoded with driver and link', () => {
   const link = `https://portal.sevencargo.com.br/viagem/${token}`
   const result = whatsappShareUrl('João da Silva', link)

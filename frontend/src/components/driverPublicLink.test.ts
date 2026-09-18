@@ -58,9 +58,11 @@ test('administrative 401 clears the visual session and offers reauthentication',
 })
 
 test('development panel requests are same-origin and preserve the /api cookie path', () => {
-  assert.match(api, /const PANEL_API_URL = import\.meta\.env\.DEV \? '' : API_URL/)
+  assert.match(api, /const API_URL = import\.meta\.env\.DEV \? '' : CONFIGURED_API_URL/)
+  assert.match(api, /const PANEL_API_URL = API_URL/)
   assert.match(api, /fetch\(`\$\{PANEL_API_URL\}\$\{path\}`/)
-  assert.match(viteConfig, /'\/api':[\s\S]*target: 'http:\/\/localhost:8000'/)
+  assert.match(viteConfig, /const backendProxy = \{[\s\S]*target: 'http:\/\/localhost:8000'/)
+  assert.match(viteConfig, /'\/api': backendProxy/)
   assert.doesNotMatch(viteConfig, /rewrite:/)
 })
 

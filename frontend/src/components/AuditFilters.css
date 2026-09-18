@@ -1,0 +1,6 @@
+.audit-filter-actions{display:flex;align-items:center;gap:8px}
+.btn-clear-filters{height:42px;display:flex;align-items:center;gap:7px;padding:0 12px;border:1px solid #3b443f;border-radius:8px;background:#0d1511;color:#aab5ae;font-size:10px;font-weight:700;cursor:pointer}
+.btn-clear-filters:hover{border-color:#7b867f;color:#fff}
+.btn-clear-filters svg{width:14px}
+@media(max-width:1100px){.audit-filter-actions{align-self:flex-end}}
+@media(max-width:600px){.audit-filter-actions{width:100%}.audit-filter-actions button{flex:1;justify-content:center}}

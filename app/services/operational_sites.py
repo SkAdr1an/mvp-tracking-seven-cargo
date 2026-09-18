@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.config import get_settings
+from app.storage.sqlite_runtime import connect_existing_database
 
 
 APPROACH_RADIUS_M = 1000.0
@@ -156,11 +157,9 @@ class OperationalSiteService:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = str(Path(database_path).resolve())
         self._lock = threading.RLock()
-        self.initialize()
-        self.upsert_authorized_sites()
 
     def connect(self) -> sqlite3.Connection:
-        connection = sqlite3.connect(self.database_path, timeout=10)
+        connection = connect_existing_database(self.database_path, timeout=10)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys=ON")
         return connection

@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
+from app.storage.sqlite_runtime import connect_existing_database
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -163,14 +165,12 @@ class AngelLiraRepository:
     def __init__(self, database_path: str | Path) -> None:
         self.database_path = str(database_path)
         self._lock = threading.RLock()
-        self.initialize()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        path = Path(self.database_path)
-        if self.database_path != ":memory:":
-            path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.database_path, timeout=10, check_same_thread=False)
+        connection = connect_existing_database(
+            self.database_path, timeout=10, check_same_thread=False
+        )
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         connection.execute("PRAGMA journal_mode = WAL")
@@ -182,24 +182,6 @@ class AngelLiraRepository:
             raise
         finally:
             connection.close()
-
-    def initialize(self) -> None:
-        with self._lock, self.connect() as connection:
-            connection.executescript(SCHEMA)
-            columns = {
-                row["name"] for row in connection.execute(
-                    "PRAGMA table_info(angellira_stations)"
-                ).fetchall()
-            }
-            if "manual_review_required" not in columns:
-                connection.execute(
-                    "ALTER TABLE angellira_stations "
-                    "ADD COLUMN manual_review_required INTEGER NOT NULL DEFAULT 0"
-                )
-            if "possible_merge_group_id" not in columns:
-                connection.execute(
-                    "ALTER TABLE angellira_stations ADD COLUMN possible_merge_group_id TEXT"
-                )
 
     def dataset(self, dataset_id: str, source_version: str) -> dict[str, Any] | None:
         with self.connect() as connection:

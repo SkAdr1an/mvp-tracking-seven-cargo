@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 from app.services.route_deviation import route_deviation_service
 from app.services.trip_operations import trip_operations_service
 from app.storage.operations import utc_now
-from app.core.security import require_panel_session
+from app.core.security import Permission, Principal, require_permission
+from app.core.config import get_settings
+from app.services.audit import AuditAction, AuditService
 
 router = APIRouter(tags=["route-monitoring"])
 
@@ -33,7 +35,7 @@ class DriverAssociationRequest(BaseModel):
     new_driver: str | None = Field(default=None, max_length=150)
 
 
-@router.get("/routes/{route_id}/geometry")
+@router.get("/routes/{route_id}/geometry", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def route_geometry(route_id: str, max_points: int = Query(default=1800, ge=100, le=5000)):
     value = route_deviation_service.geometry(route_id)
     if not value:
@@ -45,7 +47,7 @@ async def route_geometry(route_id: str, max_points: int = Query(default=1800, ge
     return value
 
 
-@router.get("/routes/{route_id}/paths")
+@router.get("/routes/{route_id}/paths", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def route_paths(route_id: str, max_points_per_trip: int = Query(default=700, ge=20, le=1500)):
     trips = [trip for trip in trip_operations_service.repository.trips() if trip.get("route_id") == route_id]
     active = {item["trip_key"]: item for item in route_deviation_service.active()}
@@ -57,7 +59,7 @@ async def route_paths(route_id: str, max_points_per_trip: int = Query(default=70
     return {"paths": paths}
 
 
-@router.get("/routes/paths")
+@router.get("/routes/paths", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def all_route_paths(max_points_per_trip: int = Query(default=700, ge=20, le=1500)):
     active = {item["trip_key"]: item for item in route_deviation_service.active()}
     paths = []
@@ -71,12 +73,12 @@ async def all_route_paths(max_points_per_trip: int = Query(default=700, ge=20, l
     return {"paths": paths}
 
 
-@router.get("/deviations/active")
+@router.get("/deviations/active", dependencies=[Depends(require_permission(Permission.INCIDENTS_READ))])
 async def active_deviations():
     return {"deviations": route_deviation_service.active()}
 
 
-@router.get("/deviations/trips/{trip_key}")
+@router.get("/deviations/trips/{trip_key}", dependencies=[Depends(require_permission(Permission.INCIDENTS_READ))])
 async def deviation_history(trip_key: str):
     return {"deviations": route_deviation_service.history(trip_key)}
 
@@ -85,10 +87,19 @@ async def deviation_history(trip_key: str):
 async def acknowledge(
     deviation_id: int,
     payload: AcknowledgeRequest,
-    operator: str = Depends(require_panel_session),
+    principal: Principal = Depends(require_permission(Permission.INCIDENTS_EDIT_STRUCTURAL)),
 ):
     try:
-        return route_deviation_service.acknowledge(deviation_id, operator, payload.reason, payload.justification)
+        result = route_deviation_service.acknowledge(
+            deviation_id, principal.username, payload.reason, payload.justification
+        )
+        AuditService(get_settings().operations_database_path).record(
+            principal, AuditAction.INCIDENT_CONFIRMED, "route_deviation",
+            resource_id=deviation_id, trip_key=result.get("trip_key"),
+            after={"acknowledged": True, "reason": payload.reason},
+            justification=payload.justification,
+        )
+        return result
     except KeyError as exc:
         raise HTTPException(404, "Desvio não encontrado") from exc
 
@@ -97,12 +108,19 @@ async def acknowledge(
 async def close(
     deviation_id: int,
     payload: CloseRequest,
-    operator: str = Depends(require_panel_session),
+    principal: Principal = Depends(require_permission(Permission.INCIDENTS_EDIT_STRUCTURAL)),
 ):
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")
     try:
-        return route_deviation_service.close(deviation_id, operator, payload.justification)
+        result = route_deviation_service.close(deviation_id, principal.username, payload.justification)
+        AuditService(get_settings().operations_database_path).record(
+            principal, AuditAction.INCIDENT_CLOSED, "route_deviation",
+            resource_id=deviation_id, trip_key=result.get("trip_key"),
+            before={"status": "ACTIVE"}, after={"status": result.get("status")},
+            justification=payload.justification,
+        )
+        return result
     except KeyError as exc:
         raise HTTPException(404, "Desvio não encontrado") from exc
 
@@ -111,7 +129,7 @@ async def close(
 async def change_driver_association(
     trip_key: str,
     payload: DriverAssociationRequest,
-    operator: str = Depends(require_panel_session),
+    principal: Principal = Depends(require_permission(Permission.TRIPS_ASSIGN_DRIVER)),
 ):
     if not payload.confirmed:
         raise HTTPException(422, "Confirmação explícita obrigatória")
@@ -130,6 +148,11 @@ async def change_driver_association(
         trip_key, "DRIVER_ASSOCIATION_CORRECTED" if current else "DRIVER_ASSOCIATION_REMOVED",
         utc_now(), "operator", "Associação de motorista alterada com confirmação explícita",
         metadata={"previous_driver": previous, "current_driver": current},
-        justification=payload.justification, operator=operator,
+        justification=payload.justification, operator=principal.username,
+    )
+    AuditService(get_settings().operations_database_path).record(
+        principal, AuditAction.TRIP_DRIVER_ASSIGNED, "trip", resource_id=trip_key,
+        trip_key=trip_key, before={"driver": previous}, after={"driver": current},
+        justification=payload.justification,
     )
     return updated

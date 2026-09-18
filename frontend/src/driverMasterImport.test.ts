@@ -1,0 +1,9 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import { normalizeDriverHeader, parseDriverMatrix } from './driverMasterImport.ts'
+import { utils, write } from 'xlsx'
+const headers=[' status ','Data do Cadastro','MOTORISTA','Telefone Principal','telefone de emergência','CPF','Cliente / Operação','ROTAS','Perfil de Veículo']
+test('normaliza cabeçalhos e preserva data Excel sem fuso',()=>{assert.equal(normalizeDriverHeader(' Cliente / Operação '),'CLIENTE OPERACAO');const [row]=parseDriverMatrix([headers,['ATIVO',45567,'Ana','1199','1188','123.456.789-01','CEVA','SP / MG','Truck']]);assert.equal(row.registration_date,'2024-10-02');assert.equal(row.cpf,'12345678901');assert.deepEqual(row.routes,['SP / MG'])})
+test('sinaliza campos seguros para revisão',()=>{const [row]=parseDriverMatrix([headers,['','data ruim','Ana','','','','','','']]);assert.ok(row.warnings.includes('CPF não informado'));assert.ok(row.warnings.includes('Data do cadastro inválida'))})
+test('lê arquivos Excel e CSV pelo fluxo real',async()=>{const {parseDriverFile}=await import('./driverMasterImport.ts');const matrix=[headers,['ATIVO','10/09/2026','Carlos','1199','','11122233344','CEVA','Todas Rotas','Sider']];const xlsx=write({SheetNames:['Base'],Sheets:{Base:utils.aoa_to_sheet(matrix)}},{type:'array',bookType:'xlsx'});const excelRows=await parseDriverFile(new File([xlsx],'motoristas.xlsx'));const csvRows=await parseDriverFile(new File([matrix.map(row=>row.join(';')).join('\n')],'motoristas.csv'));assert.equal(excelRows[0].registration_date,'2026-09-10');assert.equal(csvRows[0].name,'Carlos')})
+test('linha sem nome permanece visível para classificação inválida',()=>{const [row]=parseDriverMatrix([headers,['ATIVO','10/09/2026','','1199','','11122233344','CEVA','Todas Rotas','Sider']]);assert.equal(row.name,'')})

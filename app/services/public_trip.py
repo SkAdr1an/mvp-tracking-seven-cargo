@@ -30,7 +30,7 @@ PUBLIC_STATUS = {
     "RETORNO_CONCLUIDO": "Retorno concluído",
 }
 
-FINAL_TRIP_STATES = frozenset({"FINALIZADA_NO_SISTEMA", "RETORNO_CONCLUIDO"})
+FINAL_TRIP_STATES = frozenset({"FINALIZADA_NO_SISTEMA", "RETORNO_CONCLUIDO", "CANCELADA"})
 logger = logging.getLogger(__name__)
 
 

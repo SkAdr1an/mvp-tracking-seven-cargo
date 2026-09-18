@@ -4,6 +4,7 @@ from functools import lru_cache
 from typing import Any
 
 from fastapi import APIRouter, Depends, Query
+from app.core.security import Permission, require_permission
 
 from app.core.config import get_settings
 from app.services.angellira import AngelLiraService
@@ -18,12 +19,12 @@ def get_angellira_service() -> AngelLiraService:
     return AngelLiraService(AngelLiraRepository(get_settings().operations_database_path))
 
 
-@router.get("/status")
+@router.get("/status", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def status(service: AngelLiraService = Depends(get_angellira_service)) -> dict[str, Any]:
     return service.status()
 
 
-@router.get("/stations")
+@router.get("/stations", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def stations(
     status: str = Query(default="validated", pattern="^(validated|all)$"),
     service: AngelLiraService = Depends(get_angellira_service),
@@ -36,7 +37,7 @@ async def stations(
     }
 
 
-@router.get("/risk-areas")
+@router.get("/risk-areas", dependencies=[Depends(require_permission(Permission.TRIPS_READ))])
 async def risk_areas(
     status: str = Query(default="validated", pattern="^(validated|all)$"),
     service: AngelLiraService = Depends(get_angellira_service),
@@ -50,7 +51,7 @@ async def risk_areas(
     }
 
 
-@router.get("/admin")
+@router.get("/admin", dependencies=[Depends(require_permission(Permission.SETTINGS_READ))])
 async def admin(
     service: AngelLiraService = Depends(get_angellira_service),
 ) -> dict[str, Any]:

@@ -1,13 +1,19 @@
-import { CloudSun, Database, Map, Route, Settings2, Truck, Waypoints, X } from 'lucide-react'
+import { CloudSun, Database, FileSpreadsheet, History, Map, Route, Settings2, Truck, Users, Waypoints, X } from 'lucide-react'
 import type { Page } from '../types'
+import { usePanelSession, hasPermission } from '../permissions'
 
-const items: { page: Page; label: string; icon: typeof Map }[] = [
+const items: { page: Page; label: string; icon: typeof Map; permission?:string }[] = [
   { page: 'overview', label: 'Visão geral', icon: Map },
   { page: 'drivers', label: 'Motoristas', icon: Truck },
-  { page: 'routes', label: 'Planejar rota', icon: Route },
-  { page: 'trafegus', label: 'Trafegus', icon: Waypoints },
-  { page: 'integrations', label: 'Integrações', icon: CloudSun },
-  { page: 'angellira', label: 'Base AngelLira', icon: Database },
+  { page: 'driver-master', label: 'Base de Motoristas', icon: Users, permission:'drivers:read' },
+  { page: 'weekly-programming', label: 'Programação Semanal', icon: FileSpreadsheet, permission:'trips:read' },
+  { page: 'driver-history', label: 'Histórico de viagem', icon: History, permission:'trips:read' },
+  { page: 'routes', label: 'Planejar rota', icon: Route, permission:'integrations:invoke' },
+  { page: 'trafegus', label: 'Trafegus', icon: Waypoints, permission:'integrations:invoke' },
+  { page: 'integrations', label: 'Integrações', icon: CloudSun, permission:'integrations:invoke' },
+  { page: 'angellira', label: 'Base AngelLira', icon: Database, permission:'settings:read' },
+  { page: 'users', label: 'Usuários', icon: Users, permission:'users:read' },
+  { page: 'audit', label: 'Auditoria', icon: History, permission:'audit:read-full' },
 ]
 
 export function Sidebar({ page, onChange, open, onClose }: {
@@ -16,16 +22,17 @@ export function Sidebar({ page, onChange, open, onClose }: {
   open: boolean
   onClose: () => void
 }) {
+  const session=usePanelSession()
   return (
     <aside id="primary-navigation" className={`sidebar ${open ? 'sidebar--open' : ''}`}>
       <div className="brand">
-        <div className="brand__mark"><span>7</span></div>
+        <img className="brand__logo" src="/login/seven-cargo-logo.png" alt="Seven Cargo" />
         <div><strong>Seven Cargo</strong><small>Central de operações</small></div>
         <button type="button" className="icon-button sidebar__close" onClick={onClose} aria-label="Fechar menu"><X size={20} /></button>
       </div>
       <nav className="nav" aria-label="Navegação principal">
         <span className="nav__eyebrow">Operação</span>
-        {items.map(({ page: itemPage, label, icon: Icon }) => (
+        {items.filter((item)=>!item.permission||hasPermission(session,item.permission)).map(({ page: itemPage, label, icon: Icon }) => (
           <button
             type="button"
             key={itemPage}

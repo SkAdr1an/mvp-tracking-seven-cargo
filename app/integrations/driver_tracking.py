@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 import hmac
 import re
 from typing import Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
 
 from app.core.config import get_settings
+from app.core.security import PANEL_SESSION_COOKIE, Permission, validate_panel_session
 from app.services.trip_operations import PositionUpdate, trip_operations_service
 
 router = APIRouter(prefix="/tracking", tags=["tracking"])
@@ -46,8 +48,10 @@ def _require_http_token(authorization: str | None = Header(default=None)) -> Non
         raise HTTPException(status_code=401, detail="Invalid tracking token")
 
 
-async def _accept_authorized(websocket: WebSocket, token: str | None) -> bool:
-    if not _authorized(token):
+async def _accept_authorized(websocket: WebSocket, token: str | None, *, panel_allowed: bool = False) -> bool:
+    principal = validate_panel_session(websocket.cookies.get(PANEL_SESSION_COOKIE)) if panel_allowed else None
+    panel_authorized = bool(principal and principal.has_permission(Permission.DRIVERS_READ))
+    if not (_authorized(token) or panel_authorized):
         await websocket.close(code=1008, reason="Invalid tracking token")
         return False
     await websocket.accept()
@@ -82,17 +86,20 @@ async def websocket_driver_endpoint(
                         plate, location.trip_id, [], [location.current_driver], source="websocket"
                     )
                 recorded_at = datetime.fromisoformat(location.timestamp.replace("Z", "+00:00")) if location.timestamp else datetime.now(timezone.utc)
-                operational = trip_operations_service.process_position(PositionUpdate(
-                    plate=plate,
-                    trip_id=location.trip_id,
-                    latitude=location.latitude,
-                    longitude=location.longitude,
-                    speed_kmh=location.speed_kmh,
-                    recorded_at=recorded_at,
-                    source="websocket",
-                    route_id=location.route_id,
-                    route_description=location.route_description,
-                ))
+                operational = await asyncio.to_thread(
+                    trip_operations_service.process_position,
+                    PositionUpdate(
+                        plate=plate,
+                        trip_id=location.trip_id,
+                        latitude=location.latitude,
+                        longitude=location.longitude,
+                        speed_kmh=location.speed_kmh,
+                        recorded_at=recorded_at,
+                        source="websocket",
+                        route_id=location.route_id,
+                        route_description=location.route_description,
+                    ),
+                )
             active_drivers[driver_id] = {
                 "location": location_data,
                 "last_update": now,
@@ -120,7 +127,7 @@ async def websocket_manager_endpoint(
     websocket: WebSocket,
     token: str | None = Query(default=None),
 ) -> None:
-    if not await _accept_authorized(websocket, token):
+    if not await _accept_authorized(websocket, token, panel_allowed=True):
         return
 
     manager_connections.add(websocket)
@@ -161,8 +168,14 @@ async def broadcast_driver_update(
 @router.get("/drivers/active", dependencies=[])
 async def get_active_drivers(
     authorization: str | None = Header(default=None),
+    session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> dict[str, Any]:
-    _require_http_token(authorization)
+    principal = validate_panel_session(session)
+    if principal:
+        if not principal.has_permission(Permission.DRIVERS_READ):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
+        _require_http_token(authorization)
     online = {key: value for key, value in active_drivers.items() if value["status"] != "offline"}
     return {"total": len(online), "drivers": active_drivers}
 
@@ -171,21 +184,25 @@ async def get_active_drivers(
 async def get_driver_location(
     driver_id: str,
     authorization: str | None = Header(default=None),
+    session: str | None = Cookie(default=None, alias=PANEL_SESSION_COOKIE),
 ) -> dict[str, Any]:
-    _require_http_token(authorization)
+    principal = validate_panel_session(session)
+    if principal:
+        if not principal.has_permission(Permission.DRIVERS_READ):
+            raise HTTPException(status_code=403, detail="Permission denied")
+    else:
+        _require_http_token(authorization)
     driver = active_drivers.get(driver_id)
     if driver is None:
         raise HTTPException(status_code=404, detail=f"Driver {driver_id} not found")
     return {"driver_id": driver_id, **driver}
 
 
-@router.post("/driver/{driver_id}/status")
+@router.post("/driver/{driver_id}/status", dependencies=[Depends(_require_http_token)])
 async def update_driver_status(
     driver_id: str,
     status: str,
-    authorization: str | None = Header(default=None),
 ) -> dict[str, str]:
-    _require_http_token(authorization)
     if status not in {"online", "on_route", "paused", "offline"}:
         raise HTTPException(status_code=422, detail="Invalid driver status")
     driver = active_drivers.get(driver_id)

@@ -1,0 +1,17 @@
+import {useQuery} from '@tanstack/react-query'
+import {AlertTriangle,LockKeyhole,X} from 'lucide-react'
+import {useState} from 'react'
+import {api} from '../api'
+import {AuditFilters,type AuditFilterValues} from '../components/AuditFilters'
+import {AuditTable} from '../components/AuditTable'
+import {ActionLabel} from '../components/ActionLabel'
+import type {AuditEvent} from '../types'
+
+export function Audit(){
+ const [filters,setFilters]=useState<AuditFilterValues>({}),[cursors,setCursors]=useState<(string|undefined)[]>([undefined]),[page,setPage]=useState(1),[selected,setSelected]=useState<AuditEvent|null>(null)
+ const query=useQuery({queryKey:['audit',filters,cursors[page-1]],queryFn:()=>api.audit({...filters,limit:'25',...(cursors[page-1]?{cursor:cursors[page-1]}:{})}),placeholderData:previous=>previous})
+ const apply=(next:AuditFilterValues)=>{setFilters(next);setCursors([undefined]);setPage(1);setSelected(null)}
+ const next=()=>{if(!query.data?.next_cursor)return;setCursors(current=>{const copy=current.slice();copy[page]=query.data?.next_cursor||undefined;return copy});setPage(value=>value+1)}
+ return <div className="page-stack audit-page"><header className="audit-header"><div><span className="eyebrow">Rastreabilidade administrativa e operacional</span><h1>Auditoria</h1><p>Histórico de ações, mudanças e eventos do sistema</p></div></header><section className="audit-panel"><AuditFilters onApply={apply} isLoading={query.isFetching}/>{query.isError?<div className="audit-error"><AlertTriangle/><div><strong>Erro ao carregar auditoria</strong><p>Não foi possível carregar os eventos. Tente novamente.</p><button className="secondary-button" onClick={()=>query.refetch()}>Tentar novamente</button></div></div>:<AuditTable items={query.data?.events||[]} page={page} hasNext={Boolean(query.data?.next_cursor)} onPrevious={()=>setPage(value=>Math.max(1,value-1))} onNext={next} onSelect={setSelected} isLoading={query.isLoading}/>}</section>{selected&&<section className="audit-detail" aria-label="Detalhes do evento"><button className="audit-detail__close" onClick={()=>setSelected(null)} aria-label="Fechar detalhes"><X/></button><span className="eyebrow">Detalhes do evento</span><h2><ActionLabel actionType={selected.action_type}/></h2><p>{new Date(selected.occurred_at).toLocaleString('pt-BR',{timeZone:'America/Sao_Paulo'})} · {selected.actor_display_name_snapshot} ({selected.actor_role_snapshot})</p>{selected.resource_id&&<p><strong>Recurso:</strong> <span className="break-value">{selected.resource_type} · {selected.resource_id}</span></p>}{selected.justification&&<p><strong>Justificativa:</strong> {selected.justification}</p>}<SafeDetails title="Antes" value={selected.before}/><SafeDetails title="Depois" value={selected.after}/><SafeDetails title="Metadados" value={selected.metadata}/></section>}<aside className="audit-info"><LockKeyhole/><div><strong>Informações protegidas</strong><p>Dados sensíveis são ocultados nos logs. Apenas usuários autorizados podem acessar este histórico.</p></div></aside></div>
+}
+function SafeDetails({title,value}:{title:string;value?:Record<string,unknown>|null}){return value&&Object.keys(value).length?<details><summary>{title}</summary><pre>{JSON.stringify(value,null,2)}</pre></details>:null}

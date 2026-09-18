@@ -6,6 +6,7 @@ import {
   alertVisual, isValidCoordinate, mapPriorityCoordinates, routeDistanceStats, splitRouteAtPosition,
 } from './publicMapUtils'
 import { locationAgeLabel } from './portalUtils'
+import { MAP_TILE_ATTRIBUTION, MAP_TILE_REFERRER_POLICY, MAP_TILE_URL } from '../mapTiles'
 
 const marker = (symbol: string, className: string, label: string) => divIcon({
   className: 'public-map-div-icon',
@@ -43,7 +44,7 @@ export function PublicTripMap({ trip, alerts = [] }: { trip: PublicTrip; alerts?
     </div>
     <div className="public-map-wrap">
       <MapContainer center={toLatLng(center)} zoom={position ? 8 : 6} className="public-map" scrollWheelZoom={false}>
-        <TileLayer attribution="&copy; OpenStreetMap" url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+        <TileLayer attribution={MAP_TILE_ATTRIBUTION} referrerPolicy={MAP_TILE_REFERRER_POLICY} url={MAP_TILE_URL} />
         <MapViewport points={priority} position={position} />
         {geometry.length > 1 && <Polyline positions={geometry.map(toLatLng)} pathOptions={{ color: '#27332d', weight: 9, opacity: .95 }} />}
         {routeParts.travelled.length > 1 && <Polyline positions={routeParts.travelled.map(toLatLng)} pathOptions={{ color: '#35b871', weight: 6, opacity: 1 }} />}

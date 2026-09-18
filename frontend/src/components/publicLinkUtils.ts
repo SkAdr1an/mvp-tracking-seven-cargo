@@ -30,8 +30,14 @@ export function managedPublicUrl(returnedUrl: string, configuredBase?: string): 
   if (!token || !/^[A-Za-z0-9_-]{43,128}$/.test(token)) {
     throw new Error('O servidor retornou um link público inválido.')
   }
-  const base = (configuredBase || window.location.origin).replace(/\/$/, '').replace(/\/viagem$/, '')
-  return `${base}/viagem/${token}`
+  const configured = new URL(configuredBase || parsed.origin)
+  if (!['http:','https:'].includes(configured.protocol) || configured.username || configured.password
+      || configured.search || configured.hash || !configured.hostname || configured.host.includes('://')) {
+    throw new Error('A origem pública configurada é inválida.')
+  }
+  const path = configured.pathname.replace(/\/$/, '')
+  if (path && path !== '/viagem') throw new Error('A origem pública configurada é inválida.')
+  return `${configured.origin}/viagem/${token}`
 }
 
 export function publicLinkState(status: PublicLinkStatus): PublicLinkState {

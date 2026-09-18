@@ -1,0 +1,4 @@
+import assert from 'node:assert/strict';import test from 'node:test';import {presentWeeklyLocation,weeklyDateParts} from './weeklyPresentation.ts'
+test('humaniza locais sem alterar o original',()=>{const original='SoC_SP_Cumbica_Guarulhos';assert.equal(presentWeeklyLocation(original),'Guarulhos/SP');assert.equal(original,'SoC_SP_Cumbica_Guarulhos');assert.equal(presentWeeklyLocation('SoC_PE_Jaboatão dos Guararapes'),'Jaboatão/PE');assert.equal(presentWeeklyLocation('XPT_PE_Palmares_02'),'Palmares/PE')})
+test('fallback desconhecido é seguro',()=>{assert.equal(presentWeeklyLocation('Armazém Especial'),'Armazém Especial');assert.equal(presentWeeklyLocation('SoC_PR_Curitiba'),'Curitiba/PR')})
+test('formata HOJE e AMANHÃ com hora',()=>{const now=new Date(2026,8,10,10);assert.deepEqual(weeklyDateParts('2026-09-10T18:00:00',now),{dayLabel:'HOJE',timeLabel:'18:00'});assert.deepEqual(weeklyDateParts('2026-09-11T04:00:00',now),{dayLabel:'AMANHÃ',timeLabel:'04:00'})})

@@ -49,6 +49,8 @@ logs/
 *.bak
 backups/
 data/
+secrets/
+reports/
 operational-data/
 
 # Virtual environments and tool caches
@@ -98,6 +100,12 @@ build/
 *.zip
 *.tar
 *.gz
+*.pdf
+
+# Google and integration authorization artifacts
+token*.json
+google_sheets_token.json
+client_secret*.json
 
 # Local packaged copies of this repository
 /trafegus-seven-cargo/

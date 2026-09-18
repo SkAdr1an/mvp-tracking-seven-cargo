@@ -8,7 +8,8 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.responses import JSONResponse
 
 from app.core.config import get_settings
-from app.core.security import require_internal_api_key
+from app.core.security import Principal, require_internal_api_key
+from app.services.audit import AuditAction, AuditService
 from app.schemas.public_trip import (
     DriverPortalAlertsResponse,
     MobilePositionAccepted,
@@ -19,6 +20,7 @@ from app.schemas.public_trip import (
     PublicTripResponse,
 )
 from app.services.public_trip import MobileLocationRejected, PublicTripService, PublicTripUnavailable
+from app.services.public_url import public_trip_url
 from app.services.trip_operations import trip_operations_service
 
 
@@ -51,19 +53,24 @@ def _valid_public_token(token: str) -> bool:
 async def create_public_link(
     trip_id: str,
     payload: PublicLinkCreateRequest,
-    actor: str = Depends(require_internal_api_key),
+    actor: Principal | str = Depends(require_internal_api_key),
     service: PublicTripService = Depends(get_public_trip_service),
 ) -> PublicLinkCreatedResponse:
     try:
-        link, token = service.create_link(trip_id, payload.expires_at, actor)
+        actor_name = actor.username if isinstance(actor, Principal) else actor
+        link, token = service.create_link(trip_id, payload.expires_at, actor_name)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Trip not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    base = get_settings().public_trip_base_url.rstrip("/")
+    if isinstance(actor, Principal):
+        AuditService(service.operations.database_path).record(
+            actor, AuditAction.PUBLIC_LINK_CREATED, "public_link", resource_id=link["id"],
+            trip_key=trip_id, after={"status": "ACTIVE", "expires_at": link.get("expires_at")}
+        )
     return PublicLinkCreatedResponse(
         id=link["id"],
-        url=f"{base}/{token}",
+        url=public_trip_url(get_settings().public_trip_base_url, token),
         created_at=link["created_at"],
         expires_at=link.get("expires_at"),
         active=True,
@@ -94,17 +101,23 @@ async def public_link_status(
 )
 async def revoke_public_link(
     trip_id: str,
-    actor: str = Depends(require_internal_api_key),
+    actor: Principal | str = Depends(require_internal_api_key),
     service: PublicTripService = Depends(get_public_trip_service),
 ) -> Response:
     try:
         link = service.link_status(trip_id)
         if not link or not service.status_payload(link)["active"]:
             raise HTTPException(status_code=404, detail="Public link not found")
-        if not service.revoke_link(trip_id, actor):
+        actor_name = actor.username if isinstance(actor, Principal) else actor
+        if not service.revoke_link(trip_id, actor_name):
             raise HTTPException(status_code=404, detail="Public link not found")
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Trip not found") from exc
+    if isinstance(actor, Principal):
+        AuditService(service.operations.database_path).record(
+            actor, AuditAction.PUBLIC_LINK_REVOKED, "public_link", resource_id=link["id"],
+            trip_key=trip_id, before={"status": "ACTIVE"}, after={"status": "REVOKED"}
+        )
     return Response(status_code=204)
 
 

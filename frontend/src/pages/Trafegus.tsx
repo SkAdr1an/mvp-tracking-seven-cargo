@@ -3,6 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { FormEvent, ReactNode, useState } from 'react'
 import { api } from '../api'
 import type { ProviderResult } from '../types'
+import { HistoryContent } from './DriverHistory'
 
 type DataRecord = Record<string, unknown>
 
@@ -19,6 +20,17 @@ const labels: Record<string, string> = {
 }
 
 export function Trafegus() {
+  const [mode, setMode] = useState<'drivers'|'plate'>('drivers')
+  return <div className="page-stack">
+    <nav className="trafegus-tabs" aria-label="Tipo de consulta">
+      <button className={mode==='drivers'?'active':''} onClick={()=>setMode('drivers')}>Histórico por motorista</button>
+      <button className={mode==='plate'?'active':''} onClick={()=>setMode('plate')}>Consulta por placa</button>
+    </nav>
+    {mode==='drivers'?<HistoryContent/>:<PlateConsultation/>}
+  </div>
+}
+
+function PlateConsultation() {
   const [plate, setPlate] = useState('')
   const consultation = useMutation({ mutationFn: api.consultPlate })
   const submit = (event: FormEvent) => {

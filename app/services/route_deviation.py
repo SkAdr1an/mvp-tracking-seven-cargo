@@ -51,10 +51,14 @@ class RouteDeviationService:
 
     def process(self,trip_key:str,plate:str,route_id:str|None,latitude:float,longitude:float,recorded_at:str)->dict[str,Any]|None:
         if not route_id:return None
-        geometry=self.geometry(route_id)
-        if geometry:
-            route=[(point["latitude"],point["longitude"]) for point in geometry["geometry"]];_,distance_km=route_projection((latitude,longitude),route);distance_m=distance_km*1000;tolerance=self._tolerance(geometry,route,(latitude,longitude))
-        else:return None
+        from app.services.route_alternatives import route_alternative_service
+        geometry=route_alternative_service(self.repository).resolve(
+            trip_key,route_id,latitude,longitude,track_selection=True
+        )
+        if not geometry:return None
+        route=[(point["latitude"],point["longitude"]) for point in geometry["geometry"]]
+        distance_m=float(geometry["distance_km"])*1000
+        tolerance=self._tolerance(geometry,route,(latitude,longitude))
         outside=distance_m>tolerance
         with self.repository.connect() as connection:
             tracker=connection.execute("SELECT * FROM route_deviation_trackers WHERE trip_key=?",(trip_key,)).fetchone();active=connection.execute("SELECT * FROM route_deviations WHERE trip_key=? AND status='ACTIVE' ORDER BY id DESC LIMIT 1",(trip_key,)).fetchone()
@@ -67,7 +71,7 @@ class RouteDeviationService:
                 if not active:first_at=first_lat=first_lon=None
             connection.execute("INSERT INTO route_deviation_trackers(trip_key,outside_count,inside_count,first_outside_at,first_outside_latitude,first_outside_longitude,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(trip_key) DO UPDATE SET outside_count=excluded.outside_count,inside_count=excluded.inside_count,first_outside_at=excluded.first_outside_at,first_outside_latitude=excluded.first_outside_latitude,first_outside_longitude=excluded.first_outside_longitude,updated_at=excluded.updated_at",(trip_key,outside_count,inside_count,first_at,first_lat,first_lon,recorded_at))
             if outside and not active and outside_count>=2:
-                related=self._related(float(first_lat),float(first_lon),route_id);cursor=connection.execute("INSERT INTO route_deviations(trip_key,plate,route_id,geometry_version,status,level,started_at,exit_latitude,exit_longitude,last_outside_at,current_distance_m,max_distance_m,related_incidents_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(trip_key,plate,route_id,geometry["version"],"ACTIVE","INITIAL",first_at,first_lat,first_lon,recorded_at,distance_m,distance_m,json.dumps(related),utc_now()));active=connection.execute("SELECT * FROM route_deviations WHERE id=?",(cursor.lastrowid,)).fetchone();self._event(connection,active["id"],"DEVIATION_CONFIRMED",recorded_at,"INITIAL",distance_m)
+                related=self._related(float(first_lat),float(first_lon),route_id);cursor=connection.execute("INSERT INTO route_deviations(trip_key,plate,route_id,geometry_version,status,level,started_at,exit_latitude,exit_longitude,last_outside_at,current_distance_m,max_distance_m,related_incidents_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",(trip_key,plate,route_id,geometry["version"],"ACTIVE","INITIAL",first_at,first_lat,first_lon,recorded_at,distance_m,distance_m,json.dumps(related),utc_now()));active=connection.execute("SELECT * FROM route_deviations WHERE id=?",(cursor.lastrowid,)).fetchone();self._event(connection,active["id"],"DEVIATION_CONFIRMED",recorded_at,"INITIAL",distance_m,metadata={"corridor_id":geometry["id"],"corridor_name":geometry["name"]})
             elif active and outside:
                 level=self._level(active["started_at"],recorded_at);connection.execute("UPDATE route_deviations SET last_outside_at=?,current_distance_m=?,max_distance_m=MAX(max_distance_m,?),level=? WHERE id=?",(recorded_at,distance_m,distance_m,level,active["id"]));
                 if level!=active["level"]:self._event(connection,active["id"],"LEVEL_CHANGED",recorded_at,level,distance_m)

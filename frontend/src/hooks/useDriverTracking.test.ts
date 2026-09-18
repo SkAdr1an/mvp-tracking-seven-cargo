@@ -9,6 +9,9 @@ test('tracking hook obtains the manager socket URL from the shared API configura
   assert.match(hook, /new WebSocket\(trackingSocketUrl\(\)\)/)
   assert.doesNotMatch(hook, /ws:\/\/localhost/)
   assert.match(api, /import\.meta\.env\.VITE_WS_URL/)
+  assert.match(api, /window\.location\.protocol === 'https:' \? 'wss:' : 'ws:'/)
+  assert.match(api, /\/\/\$\{window\.location\.host\}/)
+  assert.match(api, /const API_URL = import\.meta\.env\.DEV \? '' : CONFIGURED_API_URL/)
   assert.match(api, /\/tracking\/ws\/manager/)
 })
 

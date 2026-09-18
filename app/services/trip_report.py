@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from app.services.journey_observation import get_journey_observation_service
+from app.services.operational_observations import OperationalObservationService
 from app.storage.operations import OperationsRepository
 
 
@@ -38,6 +39,10 @@ class TripReportService:
         route = self.repository.route(trip["route_id"]) if trip.get("route_id") else None
         stops = observation.stops(trip_key)
         gaps = observation.gaps(trip_key)
+        human_observations = OperationalObservationService(
+            self.repository.database_path
+        ).list_for_trip(trip_key, active_report_only=True)
+        lifecycle = self._lifecycle_evidence(trip_key)
         delay = diagnostic.get("commitment_delta_minutes") if diagnostic else None
         sufficient = bool(
             (plan and (plan.get("customer_commitment_at") or plan.get("scheduled_arrival_at")))
@@ -53,6 +58,8 @@ class TripReportService:
             "positions": positions,
             "stops": stops,
             "communication_gaps": gaps,
+            "operational_observations": human_observations,
+            "lifecycle": lifecycle,
             "summary": {
                 "position_count": len(positions),
                 "stop_count": len(stops),
@@ -70,6 +77,24 @@ class TripReportService:
                 "overlap_policy": "Communication gaps are never counted as observed stops",
             },
         }
+
+    def _lifecycle_evidence(self, trip_key: str) -> dict[str, Any]:
+        actions = ("TRIP_CANCELLED", "TRIP_ARCHIVED", "TRIP_UNARCHIVED")
+        with self.repository.connect() as connection:
+            rows = connection.execute(
+                """SELECT action_type,occurred_at,actor_display_name_snapshot,
+                          actor_role_snapshot,justification
+                   FROM audit_events
+                   WHERE trip_key=? AND action_type IN (?,?,?)
+                   ORDER BY occurred_at,id""",
+                (trip_key, *actions),
+            ).fetchall()
+        return {"events": [{
+            "action": row["action_type"], "occurred_at": row["occurred_at"],
+            "responsible_name": row["actor_display_name_snapshot"],
+            "responsible_role": row["actor_role_snapshot"],
+            "reason": row["justification"],
+        } for row in rows]}
 
     def generate(self, trip_key: str) -> GeneratedReport:
         evidence = self.evidence(trip_key)
@@ -125,12 +150,36 @@ class TripReportService:
                 f'{stop["duration_minutes"]:.0f} min', stop.get("reason_text") or "Motivo não registrado",
             )) + "</tr>" for stop in value["stops"]
         ) or '<tr><td colspan="5">Nenhuma parada persistida.</td></tr>'
+        observations = "".join(
+            "<article class='observation'>"
+            f"<small>{html.escape(item['occurred_at'])} — {html.escape(item['type_label'])}</small>"
+            f"<p>{html.escape(item['content'])}</p>"
+            "<footer>Registrado por: "
+            f"{html.escape(item['author']['display_name'])} — "
+            f"{html.escape(item['author']['role_label'])}</footer></article>"
+            for item in value["operational_observations"]
+        ) or "<p>Nenhuma observação humana ativa incluída no relatório.</p>"
+        lifecycle_labels = {
+            "TRIP_CANCELLED": "Viagem cancelada", "TRIP_ARCHIVED": "Viagem arquivada",
+            "TRIP_UNARCHIVED": "Viagem desarquivada",
+        }
+        lifecycle = "".join(
+            "<article class='observation'>"
+            f"<small>{html.escape(item['occurred_at'])}</small>"
+            f"<p><b>{lifecycle_labels.get(item['action'], item['action'])}</b> — "
+            f"{html.escape(item.get('reason') or 'Motivo não informado')}</p>"
+            "<footer>Responsável: "
+            f"{html.escape(item['responsible_name'])} — "
+            f"{html.escape(item['responsible_role'])}</footer></article>"
+            for item in value.get("lifecycle", {}).get("events", [])
+        ) or "<p>Nenhum cancelamento ou arquivamento registrado.</p>"
         return f"""<!doctype html><html lang='pt-BR'><head><meta charset='utf-8'>
 <title>Relatório operacional</title><style>
 body{{font:14px Arial;color:#172033;max-width:1000px;margin:36px auto;padding:0 24px}}
 header{{background:#12395b;color:white;padding:32px;border-radius:12px}}h1{{margin:0}}
 .cards{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0}}
 article{{padding:16px;border:1px solid #dbe3ea;border-radius:9px}}small,strong{{display:block}}strong{{font-size:22px;margin-top:8px}}
+.observation{{margin:10px 0}}.observation p{{white-space:pre-wrap}}.observation footer{{color:#526174}}
 .warning{{background:#fff4d6;border-left:5px solid #e4a300;padding:14px}}table{{width:100%;border-collapse:collapse}}th,td{{padding:9px;border-bottom:1px solid #ddd;text-align:left}}th{{background:#12395b;color:white}}
 @page{{size:A4;margin:12mm}}@media print{{body{{margin:0;padding:0;max-width:none;-webkit-print-color-adjust:exact;print-color-adjust:exact}}header,article,table,.warning{{break-inside:avoid}}h2{{break-after:avoid}}thead{{display:table-header-group}}tr{{break-inside:avoid}}}}
 </style></head><body><header><small>Seven Cargo · Relatório automático</small>
@@ -140,5 +189,7 @@ article{{padding:16px;border:1px solid #dbe3ea;border-radius:9px}}small,strong{{
 <div class='warning'><b>Evidência do atraso: {summary['delay_evidence']}</b><br>
 O relatório diferencia dados persistidos, cálculos e informações indisponíveis.</div>
 <h2>Paradas observadas</h2><table><thead><tr><th>Classificação</th><th>Início</th><th>Fim</th><th>Duração</th><th>Motivo</th></tr></thead><tbody>{stops}</tbody></table>
+<h2>Observações operacionais</h2>{observations}
+<h2>Ciclo de vida da viagem</h2>{lifecycle}
 <h2>Fontes e método</h2><p>{summary['position_count']} posições persistidas; paradas em raio de 250 m; lacunas acima de 20 minutos não entram no tempo parado.</p>
 <footer>Gerado em {generated.isoformat()} · nível de confiança {summary['confidence']}</footer></body></html>"""

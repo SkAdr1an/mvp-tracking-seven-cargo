@@ -3,6 +3,7 @@ from pathlib import Path
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from app.services.public_url import canonical_public_origin
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -12,7 +13,11 @@ DEFAULT_OPERATIONS_DATABASE = PROJECT_ROOT / "data" / "operations.db"
 
 class Settings(BaseSettings):
     app_environment: str = "development"
+    local_dashboard_bypass: bool = False
     tomtom_api_key: str = ""
+    azure_maps_subscription_key: str = ""
+    azure_maps_api_url: str = "https://atlas.microsoft.com"
+    azure_maps_timeout_seconds: float = 15.0
     openrouteservice_api_key: str = ""
     openweather_api_key: str = ""
     trafegus_api_key: str = ""
@@ -26,11 +31,20 @@ class Settings(BaseSettings):
     tracking_api_key: str = ""
     public_trip_internal_api_key: str = ""
     panel_admin_username: str = ""
-    panel_admin_password: str = ""
+    panel_admin_password_hash: str = ""
+    creator_delete_password_hash: str = ""
+    panel_admin_role: str = "Administrador"
+    panel_users_file: Path | None = None
     panel_session_secret: str = ""
     panel_session_ttl_hours: int = 8
     panel_cookie_secure: bool = False
-    public_trip_base_url: str = "http://localhost:5173/viagem"
+    force_https: bool = False
+    expose_api_docs: bool = True
+    login_rate_limit_attempts: int = 5
+    login_rate_limit_window_seconds: int = 60
+    sensitive_rate_limit_attempts: int = 30
+    sensitive_rate_limit_window_seconds: int = 60
+    public_trip_base_url: str = "http://localhost:5174"
     public_trip_token_pepper: str = ""
     public_trip_default_ttl_hours: int = 168
     public_trip_contact_name: str = "Central Seven Cargo"
@@ -59,7 +73,9 @@ class Settings(BaseSettings):
     driver_alert_place_first_km: float = 5
     driver_alert_place_reinforce_km: float = 1
     frontend_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
+    allowed_hosts: str = "localhost,127.0.0.1"
     operations_database_path: Path = DEFAULT_OPERATIONS_DATABASE
+    route_geometry_bootstrap_enabled: bool = True
     fleet_collector_enabled: bool = True
     fleet_collector_interval_seconds: int = 60
     fleet_collector_initial_delay_seconds: int = 5
@@ -80,6 +96,8 @@ class Settings(BaseSettings):
     traffic_collector_interval_seconds: int = 180
     traffic_collector_initial_delay_seconds: int = 15
     traffic_corridor_km: float = 15
+    traffic_route_corridor_meters: float = 500
+    traffic_route_corridor_highway_meters: float = 1000
     traffic_lookahead_km: float = 350
     traffic_query_spacing_km: float = 60
     traffic_max_incident_calls_per_cycle: int = 12
@@ -91,12 +109,23 @@ class Settings(BaseSettings):
     operations_backup_weekly_retention: int = 4
     operations_backup_monthly_retention: int = 6
     automatic_reports_directory: Path = PROJECT_ROOT / "data" / "reports" / "automatic"
+    driver_evaluation_due_hours: int = 24
+    weekly_writeback_enabled: bool = False
+    weekly_writeback_spreadsheet_id: str = ""
+    weekly_writeback_sheet_name: str = "LHW38"
+    google_oauth_client_path: Path = PROJECT_ROOT / "secrets"
+    google_sheets_token_path: Path = PROJECT_ROOT / "secrets" / "google_sheets_token.json"
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @field_validator("public_trip_base_url")
+    @classmethod
+    def valid_public_trip_base_url(cls, value: str) -> str:
+        return canonical_public_origin(value)
 
     @field_validator("operations_database_path", mode="before")
     @classmethod
@@ -107,6 +136,20 @@ class Settings(BaseSettings):
     @field_validator("automatic_reports_directory", mode="before")
     @classmethod
     def absolute_reports_path(cls, value: str | Path) -> Path:
+        path = Path(value)
+        return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
+
+    @field_validator("google_oauth_client_path", "google_sheets_token_path", mode="before")
+    @classmethod
+    def absolute_google_secret_path(cls, value: str | Path) -> Path:
+        path = Path(value)
+        return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
+
+    @field_validator("panel_users_file", mode="before")
+    @classmethod
+    def absolute_users_path(cls, value: str | Path | None) -> Path | None:
+        if value is None or not str(value).strip():
+            return None
         path = Path(value)
         return path.resolve() if path.is_absolute() else (PROJECT_ROOT / path).resolve()
 
@@ -128,6 +171,19 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 f"PUBLIC_TRIP_TOKEN_PEPPER must be configured in {ENV_FILE}"
             )
+
+    def validate_security_runtime(self) -> None:
+        if not self.development:
+            if not self.panel_cookie_secure:
+                raise RuntimeError("PANEL_COOKIE_SECURE must be true outside development")
+            if not self.force_https:
+                raise RuntimeError("FORCE_HTTPS must be true outside development")
+            origins = [value.strip() for value in self.frontend_origins.split(",") if value.strip()]
+            if not origins or "*" in origins or any(not value.startswith("https://") for value in origins):
+                raise RuntimeError("FRONTEND_ORIGINS must contain only explicit HTTPS origins")
+            hosts = [value.strip() for value in self.allowed_hosts.split(",") if value.strip()]
+            if not hosts or "*" in hosts:
+                raise RuntimeError("ALLOWED_HOSTS must contain explicit production hosts")
 
 
 @lru_cache

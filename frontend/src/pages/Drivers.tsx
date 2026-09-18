@@ -2,6 +2,7 @@ import { Check, Clock3, EyeOff, MapPin, RotateCcw, Search, Truck, X } from 'luci
 import { useMemo, useState } from 'react'
 import { DriverDiagnostic } from '../components/DriverDiagnostic'
 import { OperationalTripPanel } from '../components/OperationalTripPanel'
+import { DelayAccountabilityPanel } from '../components/DelayAccountabilityPanel'
 import { progressLabel } from '../driverPresentation'
 import type { Driver } from '../types'
 import { formatAgo, formatDuration } from '../utils'
@@ -31,6 +32,7 @@ export function Drivers({drivers,selected,hiddenDriverIds,pinnedDriverId,onSelec
     .filter((driver)=>`${driver.id} ${driver.driver||''} ${driver.trailer_plate||''} ${driver.route||''}`.toLowerCase().includes(search.toLowerCase())&&(classification==='all'||driver.prediction?.classification===classification))
     .sort((left,right)=>compareDrivers(left,right,order)),[visible,search,classification,order])
   return <div className="page-stack drivers-page">
+    <DelayAccountabilityPanel/>
     <section className="panel table-panel">
       <div className="table-toolbar"><div><span className="eyebrow">Fonte principal · Trafegus</span><h2>Motoristas em andamento</h2><p className="toolbar-help">Clique em um motorista para abrir o diagnóstico operacional nesta aba.</p></div><div className="filters"><label className="search"><Search size={17}/><span className="sr-only">Buscar motorista, placa ou rota</span><input value={search} onChange={(event)=>setSearch(event.target.value)} placeholder="Buscar placa ou motorista"/></label><label className="filter-field"><span className="sr-only">Filtrar por situação</span><select value={classification} onChange={(event)=>setClassification(event.target.value)}><option value="all">Todas as situações</option><option value="NORMAL">Normal</option><option value="ATENCAO">Atenção</option><option value="CRITICA">Crítica</option></select></label><label className="filter-field driver-order"><span className="sr-only">Ordenar motoristas</span><select value={order} onChange={(event)=>setOrder(event.target.value as DriverOrder)}><option value="priority">Prioridade operacional</option><option value="driver">Motorista / veículo</option><option value="updated">Atualização mais recente</option></select></label></div></div>
       <div className="data-table fleet-table driver-management-table"><div className="data-table__head"><span>Veículo / motorista</span><span>Situação</span><span>Localização</span><span>ETA / atraso</span><span>Comunicação</span><span>Ações</span></div>

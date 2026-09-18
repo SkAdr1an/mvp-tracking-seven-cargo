@@ -11,39 +11,63 @@ from app.storage.operations import OperationsRepository
 
 class RouteProgressService:
     def __init__(self, repository: OperationsRepository):
-        self.repository=repository;self._cache:dict[str,tuple[str,list[tuple[float,float]],list[float]]]={}
+        self.repository=repository;self._cache:dict[str,tuple[Any,...]]={}
 
     def calculate(self,trip_key:str,route_id:str|None,latitude:float,longitude:float,speed_kmh:float|None,position_at:str|None,stale:bool)->dict[str,Any]|None:
         if not route_id:return None
-        prepared=self._prepared(route_id)
+        prepared=self._prepared(route_id,trip_key,latitude,longitude)
         if not prepared:return self._fallback(trip_key,"geometry_unavailable",position_at,speed_kmh)
-        version,points,cumulative=prepared;previous=self.repository.route_progress(trip_key);total=cumulative[-1]
+        version,variant_id,variant_name,corridor,points,cumulative=prepared;previous=self.repository.route_progress(trip_key);total=cumulative[-1]
         advanced,lateral=self._project(latitude,longitude,points,cumulative,previous)
         # Oscilação de GPS não reduz o avanço. Um retorno relevante exige duas posições
         # recentes coerentes abaixo do último marco para ser aceito.
         if previous and advanced<previous["advanced_distance_km"]:
             drop=previous["advanced_distance_km"]-advanced
             if drop<2 or not self._confirmed_return(trip_key,points,cumulative,advanced):advanced=previous["advanced_distance_km"]
-        advanced=max(0,min(advanced,total));remaining=max(total-advanced,0);progress=max(0,min(advanced/total*100 if total else 0,100))
-        geometry=self._geometry(route_id);corridor=float((geometry or {}).get("corridor_m",300));outside=lateral*1000>corridor
+        advanced=max(0,min(advanced,total));remaining=max(total-advanced,0)
+        route = self.repository.route(route_id)
+        destination_distance = None
+        if route:
+            destination_distance = self._distance(
+                (latitude, longitude),
+                (float(route["destination_latitude"]), float(route["destination_longitude"])),
+            )
+            # A projection can snap to a late/crossing segment even while the
+            # vehicle is clearly far from the destination. Direct distance is a
+            # conservative lower bound for the remaining route in that case.
+            if destination_distance * 1000 > float(route["destination_radius_m"]):
+                remaining = max(remaining, destination_distance)
+                guarded_advanced = min(advanced, max(total - remaining, 0))
+                prior_advanced = float(previous["advanced_distance_km"]) if previous else None
+                if (
+                    prior_advanced is not None
+                    and 0 < prior_advanced - guarded_advanced < 2
+                    and prior_advanced < total - 0.1
+                ):
+                    advanced = prior_advanced
+                else:
+                    advanced = guarded_advanced
+        progress=max(0,min(advanced/total*100 if total else 0,100))
+        outside=lateral*1000>corridor
         route_state="STALE" if stale else "OUTSIDE" if outside else "ON_ROUTE"
         confidence="LOW" if stale else "MEDIUM" if outside else "HIGH"
         speed_state="STALE" if stale else "UNAVAILABLE" if speed_kmh is None else "CURRENT"
-        value={"trip_key":trip_key,"route_id":route_id,"geometry_version":version,"total_distance_km":round(total,1),"advanced_distance_km":round(advanced,1),"remaining_distance_km":round(remaining,1),"progress_percent":round(progress,1),"return_distance_km":round(lateral,1) if outside else None,"route_state":route_state,"confidence":confidence,"position_at":position_at,"speed_kmh":None if stale else speed_kmh,"speed_state":speed_state}
+        value={"trip_key":trip_key,"route_id":route_id,"geometry_version":version,"route_variant":variant_id,"route_variant_name":variant_name,"alternative_route":variant_id!="primary","total_distance_km":round(total,1),"advanced_distance_km":round(advanced,1),"remaining_distance_km":round(remaining,1),"progress_percent":round(progress,1),"return_distance_km":round(lateral,1) if outside else None,"route_state":route_state,"confidence":confidence,"position_at":position_at,"speed_kmh":None if stale else speed_kmh,"speed_state":speed_state}
         reliable=not stale and confidence in {"HIGH","MEDIUM"}
         value["last_reliable"]=value.copy() if reliable else (previous or {}).get("last_reliable")
         if stale and value["last_reliable"]:
             for key in ("total_distance_km","advanced_distance_km","remaining_distance_km","progress_percent","return_distance_km","geometry_version"):value[key]=value["last_reliable"].get(key,value[key])
         return self.repository.save_route_progress(value)
 
-    def _prepared(self,route_id):
-        geometry=self._geometry(route_id)
+    def _prepared(self,route_id,trip_key,latitude,longitude):
+        from app.services.route_alternatives import route_alternative_service
+        geometry=route_alternative_service(self.repository).resolve(trip_key,route_id,latitude,longitude)
         if not geometry:return None
-        cached=self._cache.get(route_id)
+        cache_key=f"{route_id}:{geometry['id']}";cached=self._cache.get(cache_key)
         if cached and cached[0]==geometry["version"]:return cached
         points=[(float(item["latitude"]),float(item["longitude"])) for item in geometry["geometry"]];cumulative=[0.0]
         for a,b in zip(points,points[1:]):cumulative.append(cumulative[-1]+self._distance(a,b))
-        result=(geometry["version"],points,cumulative);self._cache[route_id]=result;return result
+        result=(geometry["version"],geometry["id"],geometry["name"],float(geometry["corridor_m"]),points,cumulative);self._cache[cache_key]=result;return result
 
     def _geometry(self,route_id):
         with self.repository.connect() as connection:row=connection.execute("SELECT version,geometry_json,corridor_m FROM route_geometry_versions WHERE route_id=? AND active=1 ORDER BY id DESC LIMIT 1",(route_id,)).fetchone()
